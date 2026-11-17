@@ -1,0 +1,595 @@
+      <section class="section" id="s20" data-part="الجزء 4 · C على مستوى النظام" data-nav="الـ Sockets والشبكات" data-icon="🌐" data-keywords="socket sockets network tcp udp client server bind listen accept connect send recv sendto recvfrom close htons htonl ntohs ntohl byte order big endian network byte order sockaddr sockaddr_in inet_pton inet_ntop inet_addr getaddrinfo dns c2 beacon protocol length prefix framing tlv winsock wsastartup closesocket wininet winhttp internetopen httpsendrequest poll select dga">
+        <div class="section-head">
+          <span class="section-index">20</span>
+          <div>
+            <p class="eyebrow">المرحلة العشرون</p>
+            <h2>الـ Sockets: إزاي البرنامج بيكلم الشبكة (وإزاي الـ C2 بيشتغل)</h2>
+            <p class="lede">كل backdoor وكل RAT وكل bot لازم يتكلم مع الـ <b>C2</b> (Command &amp; Control). تحت أي مكتبة HTTP، فيه <b>sockets</b>. لما تعرف الـ API ده كويس، هتعرف تطلع الـ IP والـ port من الـ disassembly، وتفهم الـ protocol اللي الـ malware بيتكلم بيه، وتكتب أداة تفك الـ traffic اللي في الـ PCAP.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">الصورة الكبيرة: Client و Server <span class="tag">TCP · UDP</span></h3>
+        <p>الـ <b>socket</b> = طرف اتصال، والـ kernel بيرجعهولك كـ file descriptor (على Linux) أو <code>SOCKET</code> (على Windows). <b>TCP</b> = اتصال موثوق ومرتب (stream of bytes)، و<b>UDP</b> = رسائل منفصلة (datagrams) من غير ضمان وصول. الـ malware غالبًا TCP (أو HTTP/HTTPS فوقه)، وUDP بيظهر في DNS tunneling وفي هجمات DDoS بتاعة الـ bots.</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ Server</th><th>الـ Client</th><th>معناها</th></tr></thead>
+            <tbody>
+              <tr><td><code>socket(AF_INET, SOCK_STREAM, 0)</code></td><td><code>socket(AF_INET, SOCK_STREAM, 0)</code></td><td>اعمل socket (IPv4 + TCP). <code>AF_INET</code> = 2، <code>SOCK_STREAM</code> = 1</td></tr>
+              <tr><td><code>bind(addr:port)</code></td><td>—</td><td>اربط الـ socket بعنوان وport</td></tr>
+              <tr><td><code>listen(backlog)</code></td><td>—</td><td>جاهز يستقبل اتصالات (= <b>bind shell</b> لو في malware)</td></tr>
+              <tr><td><code>accept()</code></td><td><code>connect(addr:port)</code></td><td>الـ three-way handshake. <code>accept</code> بترجع socket <b>جديد</b> للـ client ده</td></tr>
+              <tr><td colspan="2"><code>send</code> / <code>recv</code> (أو <code>write</code> / <code>read</code>)</td><td>تبادل bytes في الاتجاهين</td></tr>
+              <tr><td colspan="2"><code>close</code> (Windows: <code>closesocket</code>)</td><td>قفل الاتصال</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">Network Byte Order و sockaddr_in <span class="tag">htons · inet_pton</span></h3>
+        <p>الشبكة بتستخدم <b>big-endian</b> ("network byte order")، وx86 little-endian (المرحلة 02). عشان كده الـ port والـ IP لازم يتحولوا قبل ما يتحطوا في الـ struct: <code>htons</code> (host to network short) للـ port، و<code>htonl</code> للـ 32-bit، و<code>ntohs</code>/<code>ntohl</code> للعكس. والعنوان نفسه بيتحط في <code>struct sockaddr_in</code>:</p>
+        <c-example file="sockaddr.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
+static void dump(const char *label, const void *p, size_t n) {
+    const unsigned char *b = p;
+    printf("%-18s", label);
+    for (size_t i = 0; i < n; i++) printf("%02X ", b[i]);
+    printf("\n");
+}
+
+int main(void) {
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;                         /* 2, host order */
+    a.sin_port   = htons(443);                      /* 0x01BB -> bytes 01 BB */
+    inet_pton(AF_INET, "192.168.1.10", &a.sin_addr);
+
+    printf("sizeof(sockaddr_in) = %zu\n", sizeof a);
+    dump("family (2 bytes):", &a.sin_family, 2);
+    dump("port   (2 bytes):", &a.sin_port, 2);
+    dump("addr   (4 bytes):", &a.sin_addr, 4);
+
+    printf("port read as a little-endian WORD = 0x%04X\n", a.sin_port);
+    printf("addr read as a little-endian DWORD = 0x%08X\n", a.sin_addr.s_addr);
+    printf("back to host order: port %u\n", ntohs(a.sin_port));
+
+    char text[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &a.sin_addr, text, sizeof text);
+    printf("back to text: %s\n", text);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>طلّع الـ C2 من الأرقام</strong><p>كتير من الـ samples مش بتخزن الـ IP كـ string. هتلاقي في الـ disassembly: <code>mov word ptr [rsp+20h], 2</code> (الـ family) ← <code>mov word ptr [rsp+22h], 0BB01h</code> ← <code>mov dword ptr [rsp+24h], 0A01A8C0h</code>. فكّها: <code>0xBB01</code> مقلوب = <code>0x01BB</code> = <b>443</b>. و<code>0x0A01A8C0</code> = الـ bytes <code>C0 A8 01 0A</code> = <b>192.168.1.10</b>. وفي Ghidra غيّر نوع المتغير لـ <code>sockaddr_in</code> والحقول هتبان لوحدها. ولو لقيت <code>call htons</code> مع ثابت زي <code>0x115C</code> = port <b>4444</b> (الـ default بتاع Metasploit).</p></div></div>
+
+        <h3 class="sub">Server و Client حقيقيين (على loopback) <span class="tag">TCP echo</span></h3>
+        <p>المثال ده بيعمل server على <code>127.0.0.1</code>، ويسيب الـ kernel يختار port فاضي (port <code>0</code>)، وبعدين <code>fork</code>: الـ child بيبقى client بيتصل ويبعت رسالة، والـ parent (الـ server) بيرد عليه.</p>
+        <c-example file="tcp_echo.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+
+int main(void) {
+    /* ---------- server setup ---------- */
+    int srv = socket(AF_INET, SOCK_STREAM, 0);
+    if (srv < 0) { perror("socket"); return 1; }
+    struct sockaddr_in addr = { 0 };
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);     /* 127.0.0.1 */
+    addr.sin_port = 0;                                 /* let the kernel pick */
+    if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { perror("bind"); return 1; }
+    listen(srv, 1);
+    socklen_t len = sizeof addr;
+    getsockname(srv, (struct sockaddr *)&addr, &len);  /* which port did we get? */
+
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {                                    /* ---------- client ---------- */
+        close(srv);
+        int c = socket(AF_INET, SOCK_STREAM, 0);
+        if (connect(c, (struct sockaddr *)&addr, sizeof addr) != 0) { perror("connect"); _exit(1); }
+        const char *msg = "beacon id=42 os=linux";
+        send(c, msg, strlen(msg), 0);
+        char reply[64] = { 0 };
+        ssize_t n = recv(c, reply, sizeof reply - 1, 0);
+        printf("[client] got %zd bytes: %s\n", n, reply);
+        fflush(stdout);
+        close(c);
+        _exit(0);
+    }
+
+    /* ---------- server: serve one client ---------- */
+    int cli = accept(srv, NULL, NULL);
+    char buf[64] = { 0 };
+    ssize_t n = recv(cli, buf, sizeof buf - 1, 0);
+    for (ssize_t i = 0; i < n; i++) buf[i] = (char)toupper((unsigned char)buf[i]);
+    send(cli, buf, (size_t)n, 0);                      /* echo it back, uppercased */
+    close(cli);
+    close(srv);
+    waitpid(pid, NULL, 0);
+    printf("[server] handled 1 client, %zd bytes\n", n);
+    return 0;
+}
+        </c-example>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong><code>recv</code> مش بيرجع "رسالة"</strong><p>TCP = <b>stream</b>. لو الطرف التاني بعت 1000 byte، ممكن <code>recv</code> يرجع 300 وبعدين 700، أو يجمع رسالتين في مرة. و<code>send</code> ممكن يبعت جزء بس. عشان كده كل protocol حقيقي (وكل C2) لازم يحدد <b>حدود الرسالة</b>: إما delimiter (زي <code>\r\n</code> في HTTP) أو <b>length prefix</b> (الطول في الأول). وكل كود محترم فيه loop زي ده:</p></div></div>
+        <c-example file="send_all.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stddef.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+
+/* Keep calling send() until every byte is out (or an error happens). */
+int send_all(int fd, const void *data, size_t len) {
+    const char *p = data;
+    while (len > 0) {
+        ssize_t n = send(fd, p, len, 0);
+        if (n <= 0) return -1;          /* error or connection closed */
+        p   += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
+/* Read EXACTLY len bytes (needed for length-prefixed protocols). */
+int recv_exact(int fd, void *data, size_t len) {
+    char *p = data;
+    while (len > 0) {
+        ssize_t n = recv(fd, p, len, 0);
+        if (n <= 0) return -1;
+        p   += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
+int main(void) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) { perror("socketpair"); return 1; }
+    send_all(sv[0], "0123456789", 10);
+    char buf[11] = { 0 };
+    if (recv_exact(sv[1], buf, 4) == 0) printf("first 4 bytes : %s\n", buf);
+    if (recv_exact(sv[1], buf, 6) == 0) printf("next 6 bytes  : %.6s\n", buf);
+    close(sv[0]);
+    close(sv[1]);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">بروتوكول C2 بسيط: Length-Prefixed Messages <span class="tag">framing</span></h3>
+        <p>أغلب الـ C2 protocols المخصصة شكلها: <b>header</b> ثابت (نوع الأمر + الطول) وبعدين <b>payload</b>، وغالبًا مشفّر بـ XOR أو RC4. المثال ده بيبني رسالة ويفكها، فوق <code>socketpair</code> (اتنين sockets متوصلين ببعض جوه نفس البرنامج):</p>
+        <c-example file="framing.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+
+/* wire format: [type:1][length:2, big-endian][payload:length] */
+static size_t build(uint8_t *out, uint8_t type, const void *payload, uint16_t len) {
+    out[0] = type;
+    out[1] = (uint8_t)(len >> 8);          /* big-endian length */
+    out[2] = (uint8_t)(len & 0xFF);
+    memcpy(out + 3, payload, len);
+    return 3u + len;
+}
+
+int main(void) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) { perror("socketpair"); return 1; }
+
+    /* "C2 side" sends two commands back to back */
+    uint8_t wire[128];
+    size_t n = build(wire, 0x10, "whoami", 6);
+    n += build(wire + n, 0x20, "\x00\x3C", 2);           /* sleep 60 (big-endian) */
+    if (write(sv[0], wire, n) != (ssize_t)n) return 1;
+    close(sv[0]);
+
+    /* "implant side" parses the stream message by message */
+    uint8_t hdr[3], payload[256];
+    while (read(sv[1], hdr, 3) == 3) {
+        uint16_t len = (uint16_t)((hdr[1] << 8) | hdr[2]);
+        if (read(sv[1], payload, len) != len) { puts("truncated"); break; }
+        if (hdr[0] == 0x10)
+            printf("cmd 0x10 EXEC  len=%u arg=\"%.*s\"\n", len, (int)len, (const char *)payload);
+        else if (hdr[0] == 0x20)
+            printf("cmd 0x20 SLEEP len=%u seconds=%u\n", len, (payload[0] << 8) | payload[1]);
+    }
+    close(sv[1]);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>إزاي تفك protocol مجهول</strong><p>(1) breakpoint بعد <code>recv</code> (أو <code>InternetReadFile</code>) واعمل dump للـ buffer. (2) دوّر على الـ <b>parser</b>: أول bytes بتتقرا وبتتقارن بثوابت (<code>cmp al, 10h</code>) = الـ command IDs، وغالبًا بعدها <code>switch</code>/jump table (المرحلة 04) أو dispatch table (المرحلة 08). (3) القيمة اللي بتتعمل لها <code>bswap</code> أو <code>shl 8 | …</code> = طول big-endian. (4) اكتب parser بـ Python أو C يفك الـ PCAP كله. ده بالظبط اللي بيتعمل في الـ threat reports.</p></div></div>
+
+        <h3 class="sub">UDP: رسائل منفصلة <span class="tag">sendto · recvfrom</span></h3>
+        <c-example file="udp.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+
+int main(void) {
+    int rx = socket(AF_INET, SOCK_DGRAM, 0);            /* SOCK_DGRAM = UDP (2) */
+    int tx = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in a = { 0 };
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(rx, (struct sockaddr *)&a, sizeof a) != 0) { perror("bind"); return 1; }
+    socklen_t len = sizeof a;
+    getsockname(rx, (struct sockaddr *)&a, &len);
+
+    /* each sendto() is ONE datagram with its own boundaries */
+    sendto(tx, "first", 5, 0, (struct sockaddr *)&a, sizeof a);
+    sendto(tx, "second!", 7, 0, (struct sockaddr *)&a, sizeof a);
+
+    char buf[32];
+    for (int i = 0; i < 2; i++) {
+        ssize_t n = recvfrom(rx, buf, sizeof buf, 0, NULL, NULL);
+        printf("datagram %d: %zd bytes \"%.*s\"\n", i + 1, n, (int)n, buf);
+    }
+    close(tx);
+    close(rx);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">DNS و getaddrinfo <span class="tag">name resolution</span></h3>
+        <p>الكود الحديث مش بيحط IP ثابت: بيحل اسم domain بـ <code>getaddrinfo</code> (الطريقة الصح، بتدعم IPv4 وIPv6). سيرفر التشغيل هنا معندوش DNS، فجرّب المثال ده على جهازك:</p>
+        <c-example file="resolve.c" posix norun>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+
+int main(int argc, char *argv[]) {
+    const char *host = argc > 1 ? argv[1] : "example.com";
+    struct addrinfo hints, *res;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;            /* IPv4 or IPv6 */
+    hints.ai_socktype = SOCK_STREAM;
+
+    int err = getaddrinfo(host, "443", &hints, &res);
+    if (err != 0) {
+        printf("getaddrinfo(%s): %s\n", host, gai_strerror(err));
+        return 0;
+    }
+    for (struct addrinfo *p = res; p != NULL; p = p->ai_next) {
+        char ip[INET6_ADDRSTRLEN];
+        const void *a = p->ai_family == AF_INET
+            ? (const void *)&((struct sockaddr_in *)p->ai_addr)->sin_addr
+            : (const void *)&((struct sockaddr_in6 *)p->ai_addr)->sin6_addr;
+        inet_ntop(p->ai_family, a, ip, sizeof ip);
+        printf("%s -> %s\n", host, ip);
+    }
+    freeaddrinfo(res);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>DGA و DNS في الـ malware</strong><p>بعض العائلات بتولّد مئات الـ domains كل يوم بخوارزمية (<b>DGA</b> = Domain Generation Algorithm) من التاريخ أو seed، وبتجرب تحلهم واحد واحد. المحلل بيفك الخوارزمية من الـ disassembly ويعيد كتابتها بـ C أو Python عشان يعرف الـ domains مقدمًا ويعملها block أو sinkhole. علامتها: loop فيه LCG أو hash على أرقام اليوم/الشهر/السنة، وبيبني string من <code>'a' + (x % 26)</code>، وبعدها <code>getaddrinfo</code>/<code>DnsQuery_A</code>.</p></div></div>
+
+        <h3 class="sub">أكتر من اتصال في نفس الوقت <span class="tag">poll · select</span></h3>
+        <p><code>recv</code> بيقف (blocking) لحد ما تيجي بيانات. عشان server يخدم كذا client، أو implant يستنى الـ C2 والـ stdin بتاع shell في نفس الوقت، فيه 3 حلول: thread لكل اتصال (المرحلة 18)، أو <code>poll</code>/<code>select</code> (استنى على كذا descriptor مرة واحدة)، أو non-blocking sockets (<code>O_NONBLOCK</code> / <code>ioctlsocket(FIONBIO)</code> على Windows). لو شفت <code>select</code> في loop مع socket وpipe، ده غالبًا shell تفاعلي بينقل البيانات في الاتجاهين.</p>
+
+        <h3 class="sub">Winsock والـ HTTP APIs على Windows <span class="tag">ws2_32 · wininet</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Linux</th><th>Windows (ws2_32.dll)</th><th>ملاحظة</th></tr></thead>
+            <tbody>
+              <tr><td>—</td><td><code>WSAStartup(MAKEWORD(2,2), &amp;wsa)</code></td><td>لازم قبل أي socket. وجودها في الـ imports = البرنامج بيستخدم الشبكة</td></tr>
+              <tr><td><code>int fd</code></td><td><code>SOCKET</code> (= <code>UINT_PTR</code>)، والفشل <code>INVALID_SOCKET</code></td><td>مش <code>-1</code> زي Linux</td></tr>
+              <tr><td><code>close</code></td><td><code>closesocket</code></td><td>—</td></tr>
+              <tr><td><code>errno</code></td><td><code>WSAGetLastError()</code></td><td><code>10061</code> = <code>WSAECONNREFUSED</code></td></tr>
+              <tr><td>—</td><td><code>WSASocketW</code></td><td>socket ينفع يتحط في <code>STARTUPINFO.hStdInput</code> (reverse shell)</td></tr>
+              <tr><td>libcurl</td><td><b>WinINet</b>: <code>InternetOpenW</code> ← <code>InternetConnectW</code> ← <code>HttpOpenRequestW</code> ← <code>HttpSendRequestW</code> ← <code>InternetReadFile</code></td><td>أشهر مجموعة في الـ downloaders. الـ User-Agent في <code>InternetOpenW</code> غالبًا IOC</td></tr>
+              <tr><td>—</td><td><b>WinHTTP</b>: <code>WinHttpOpen</code> ← <code>WinHttpConnect</code> ← <code>WinHttpSendRequest</code></td><td>نفس الفكرة، ومستخدمة في services</td></tr>
+              <tr><td>—</td><td><code>URLDownloadToFileW</code> (urlmon)</td><td>تحميل ملف في سطر واحد = downloader كلاسيكي</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="win_client.c" win norun>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <stdio.h>
+/* link with -lws2_32 */
+
+int main(void) {
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
+
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) { WSACleanup(); return 1; }
+
+    struct sockaddr_in a = { 0 };
+    a.sin_family = AF_INET;
+    a.sin_port = htons(8080);
+    inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
+
+    if (connect(s, (struct sockaddr *)&a, sizeof a) == SOCKET_ERROR) {
+        printf("connect failed: %d\n", WSAGetLastError());
+        closesocket(s);
+        WSACleanup();
+        return 1;
+    }
+    const char req[] = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
+    send(s, req, (int)sizeof req - 1, 0);
+
+    char buf[512];
+    int n;
+    while ((n = recv(s, buf, sizeof buf - 1, 0)) > 0) {
+        buf[n] = '\0';
+        printf("%s", buf);
+    }
+    closesocket(s);
+    WSACleanup();
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>شكل الـ Beacon</strong><p>الـ implant النموذجي: loop لا نهائي فيه (1) جمع معلومات (hostname، user، OS) ← (2) request للـ C2 ← (3) parse للرد وتنفيذ الأمر ← (4) <code>Sleep(interval ± jitter)</code>. الـ jitter (رقم عشوائي بيتضاف على وقت النوم) عشان الـ traffic ميبقاش منتظم والـ IDS ميكتشفهوش. في الـ sandbox ممكن متشوفش أي traffic لأن الـ sleep طويل، وده سبب إن أدوات زي FakeNet-NG وتعديل قيمة الـ sleep في الـ debugger مهمين.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 20</h3></div>
+
+          <quiz id="s20-q1" answer="2">
+            <q><code>a.sin_port = htons(8080);</code>. <code>8080 = 0x1F90</code>. الـ bytes في الذاكرة (x86) بالترتيب؟</q>
+            <o><code>90 1F</code></o>
+            <o><code>00 00 1F 90</code></o>
+            <o><code>1F 90</code></o>
+            <o><code>80 80</code></o>
+            <good><code>htons</code> بيحطها big-endian: الـ byte الكبير الأول. ولو قريتها كـ WORD على x86 هتبقى <code>0x901F</code>.</good>
+            <bad>Network byte order = big-endian. مين الأول؟</bad>
+          </quiz>
+
+          <quiz id="s20-q2" answer="0">
+            <q>في الـ disassembly: <code>mov dword ptr [rbp-1Ch], 0E01A8C0h</code> وده الـ <code>sin_addr</code>. الـ IP؟</q>
+            <o><code>192.168.1.14</code></o>
+            <o><code>14.1.168.192</code></o>
+            <o><code>224.26.140.0</code></o>
+            <o><code>192.168.1.224</code></o>
+            <good>الـ DWORD <code>0x0E01A8C0</code> في الذاكرة = <code>C0 A8 01 0E</code> = 192.168.1.14.</good>
+            <bad>اكتب الـ bytes بترتيب الذاكرة (little-endian) الأول، وبعدين حوّل كل byte لـ decimal.</bad>
+          </quiz>
+
+          <quiz id="s20-q3" answer="3">
+            <q>الـ client بعت رسالة 2000 byte بـ <code>send</code> واحدة. الـ server عمل <code>recv(fd, buf, 4096, 0)</code> ورجعت 1448. ده معناه؟</q>
+            <o>bug في الـ kernel</o>
+            <o>الرسالة اتقطعت وباقيها ضاع</o>
+            <o>لازم تستخدم UDP</o>
+            <o>طبيعي: TCP stream، والباقي هييجي في <code>recv</code> تانية، فلازم loop أو length prefix</o>
+            <good>TCP مش بيحافظ على حدود الرسائل. عشان كده <code>recv_exact</code> والـ framing.</good>
+            <bad>هل TCP بيعرف إن الـ 2000 byte دول "رسالة واحدة"؟</bad>
+          </quiz>
+
+          <quiz id="s20-q4" answer="1">
+            <q>Import table فيها: <code>InternetOpenW</code>، <code>InternetOpenUrlW</code>، <code>InternetReadFile</code>، <code>CreateFileW</code>، <code>WriteFile</code>، <code>CreateProcessW</code>. السلوك الأرجح؟</q>
+            <o>Keylogger</o>
+            <o>Downloader: بيحمّل ملف من URL، يكتبه على الـ disk، ويشغّله</o>
+            <o>Ransomware</o>
+            <o>Web server</o>
+            <good>WinINet للتحميل + كتابة ملف + تشغيل = dropper/downloader كلاسيكي. الـ URL هو أهم IOC: breakpoint على <code>InternetOpenUrlW</code> واقرا الـ argument التاني.</good>
+            <bad>ركّب الـ APIs ورا بعض كأنها خطوات.</bad>
+          </quiz>
+
+          <quiz id="s20-q5" answer="2">
+            <q>implant بيعمل <code>Sleep(60000 + rand() % 15000)</code> بين كل request والتاني. الجزء العشوائي ده اسمه إيه وليه؟</q>
+            <o>Padding: عشان الـ packet يبقى حجمه ثابت</o>
+            <o>Timeout للاتصال</o>
+            <o>Jitter: عشان التوقيت ميبقاش منتظم فيصعب اكتشافه بتحليل الـ traffic</o>
+            <o>Anti-debug</o>
+            <good>Beacon بفواصل منتظمة بالظبط سهل يتكشف (beaconing detection). الـ jitter بيكسر النمط.</good>
+            <bad>تخيل graph للـ connections كل 60 ثانية بالظبط، شكله هيبقى إيه؟</bad>
+          </quiz>
+
+          <challenge id="s20-c1" title="ابنِ sockaddr_in بإيدك" posix>
+            <desc>املا <code>struct sockaddr_in</code> للعنوان <code>192.168.56.101</code> والـ port <code>4444</code> (استخدم <code>htons</code> و<code>inet_pton</code>). اطبع أول 8 bytes من الـ struct hex بالترتيب اللي في الذاكرة، وبعدين قيمة الـ port لو اتقرت كـ WORD على x86:<br><code>02 00 11 5C C0 A8 38 65</code><br><code>port as stored = 0x5C11</code></desc>
+            <starter>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
+int main(void) {
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    // TODO: family, port 4444, address 192.168.56.101
+    // TODO: print the first 8 bytes, then "port as stored = 0x%04X"
+    return 0;
+}
+            </starter>
+            <expected>
+02 00 11 5C C0 A8 38 65
+port as stored = 0x5C11
+            </expected>
+            <solution>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
+int main(void) {
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons(4444);
+    inet_pton(AF_INET, "192.168.56.101", &a.sin_addr);
+
+    const unsigned char *b = (const unsigned char *)&a;
+    for (int i = 0; i < 8; i++)
+        printf(i ? " %02X" : "%02X", b[i]);
+    printf("\n");
+    printf("port as stored = 0x%04X\n", a.sin_port);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s20-c2" title="Parser لـ C2 protocol بأمان" level="2">
+            <desc>الـ buffer ده جه من الشبكة. كل رسالة: <code>[type:1][len:2 big-endian][payload:len]</code>. الأنواع: <code>0x01</code> PRINT (الـ payload نص)، <code>0x02</code> SLEEP (الـ payload رقم 2 bytes big-endian)، <code>0x03</code> EXIT (من غير payload). امشي على الـ buffer رسالة رسالة، ولو الرسالة أطول من الباقي في الـ buffer اطبع إنها truncated ووقّف. <b>متقراش byte برا الـ buffer أبدًا</b>:<br><code>msg 1: PRINT "hello"</code><br><code>msg 2: SLEEP 30</code><br><code>msg 3: EXIT</code><br><code>msg 4: truncated (need 16 bytes, have 2)</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+
+static const uint8_t buf[] = {
+    0x01, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o',
+    0x02, 0x00, 0x02, 0x00, 0x1E,
+    0x03, 0x00, 0x00,
+    0x01, 0x00, 0x10, 'a', 'b'
+};
+
+int main(void) {
+    size_t pos = 0, size = sizeof buf;
+    int msg = 1;
+    // TODO: while there are at least 3 header bytes left:
+    //   read type and big-endian len, check that len bytes remain, then print
+    (void)pos; (void)size; (void)msg;
+    return 0;
+}
+            </starter>
+            <expected>
+msg 1: PRINT "hello"
+msg 2: SLEEP 30
+msg 3: EXIT
+msg 4: truncated (need 16 bytes, have 2)
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+
+static const uint8_t buf[] = {
+    0x01, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o',
+    0x02, 0x00, 0x02, 0x00, 0x1E,
+    0x03, 0x00, 0x00,
+    0x01, 0x00, 0x10, 'a', 'b'
+};
+
+int main(void) {
+    size_t pos = 0, size = sizeof buf;
+    int msg = 1;
+    while (size - pos >= 3) {
+        uint8_t type = buf[pos];
+        size_t len = ((size_t)buf[pos + 1] << 8) | buf[pos + 2];
+        pos += 3;
+        size_t left = size - pos;
+        if (len > left) {
+            printf("msg %d: truncated (need %zu bytes, have %zu)\n", msg, len, left);
+            break;
+        }
+        const uint8_t *p = buf + pos;
+        if (type == 0x01)
+            printf("msg %d: PRINT \"%.*s\"\n", msg, (int)len, (const char *)p);
+        else if (type == 0x02 && len == 2)
+            printf("msg %d: SLEEP %u\n", msg, (unsigned)((p[0] << 8) | p[1]));
+        else if (type == 0x03)
+            printf("msg %d: EXIT\n", msg);
+        else
+            printf("msg %d: unknown type 0x%02X\n", msg, type);
+        pos += len;
+        msg++;
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s20-c3" title="Server بيجمع أرقام" level="3" posix>
+            <desc>اعمل TCP server على <code>127.0.0.1</code> (port <code>0</code> وبعدين <code>getsockname</code>)، وبعدين <code>fork</code>. الـ <b>child</b> = client: يتصل ويبعت <code>"5 10 20"</code>، يستقبل الرد ويطبعه. الـ <b>parent</b> = server: يقبل الاتصال، يقرا الأرقام ويجمعها (<code>strtol</code> في loop)، ويرد بـ <code>sum=35</code>، وبعد <code>waitpid</code> يطبع سطره:<br><code>[client] server replied: sum=35</code><br><code>[server] served 1 client</code></desc>
+            <starter>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+
+int main(void) {
+    // TODO: socket + bind(127.0.0.1:0) + listen + getsockname
+    // TODO: fork. child: connect, send "5 10 20", recv, print, _exit
+    //       parent: accept, recv, sum with strtol, send "sum=N", waitpid, print
+    return 0;
+}
+            </starter>
+            <expected>
+[client] server replied: sum=35
+[server] served 1 client
+            </expected>
+            <solution>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+
+int main(void) {
+    int srv = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in a = { 0 };
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(srv, (struct sockaddr *)&a, sizeof a) != 0) { perror("bind"); return 1; }
+    listen(srv, 1);
+    socklen_t alen = sizeof a;
+    getsockname(srv, (struct sockaddr *)&a, &alen);
+
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(srv);
+        int c = socket(AF_INET, SOCK_STREAM, 0);
+        if (connect(c, (struct sockaddr *)&a, sizeof a) != 0) _exit(1);
+        const char *req = "5 10 20";
+        send(c, req, strlen(req), 0);
+        char reply[32] = { 0 };
+        recv(c, reply, sizeof reply - 1, 0);
+        printf("[client] server replied: %s\n", reply);
+        fflush(stdout);
+        close(c);
+        _exit(0);
+    }
+
+    int cli = accept(srv, NULL, NULL);
+    char buf[64] = { 0 };
+    recv(cli, buf, sizeof buf - 1, 0);
+    long sum = 0;
+    char *p = buf, *end;
+    for (;;) {
+        long v = strtol(p, &end, 10);
+        if (end == p) break;              /* no more numbers */
+        sum += v;
+        p = end;
+    }
+    char reply[32];
+    int n = snprintf(reply, sizeof reply, "sum=%ld", sum);
+    send(cli, reply, (size_t)n, 0);
+    close(cli);
+    close(srv);
+    waitpid(pid, NULL, 0);
+    printf("[server] served 1 client\n");
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

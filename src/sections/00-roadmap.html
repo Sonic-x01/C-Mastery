@@ -31,17 +31,18 @@
           </div>
         </div>
 
-        <h3 class="sub">خطة الكورس <span class="tag">4 أجزاء</span></h3>
+        <h3 class="sub">خطة الكورس <span class="tag">5 أجزاء</span></h3>
         <div class="steps">
-          <div class="step"><span class="n">01</span><div><h4>الأساسيات (01 → 06)</h4><p>الأدوات والـ compilation، الأنواع والتمثيل الثنائي، العمليات والـ bitwise، التحكم في التدفق، الدوال، الـ arrays والـ strings. <b>متستعجلش هنا</b> — كل اللي جاي مبني عليه.</p></div></div>
-          <div class="step"><span class="n">02</span><div><h4>الذاكرة والبوينترز (07 → 12)</h4><p>قلب لغة C وقلب الـ RE: pointers، تخطيط الذاكرة، الـ heap، الـ structs والـ padding، الـ preprocessor، وقراءة الملفات الـ binary.</p></div></div>
+          <div class="step"><span class="n">01</span><div><h4>الأساسيات (01 → 06)</h4><p>الأدوات والـ compilation وGDB، الأنواع والتمثيل الثنائي، العمليات والـ bitwise، التحكم في التدفق، الدوال (وsetjmp/longjmp)، الـ arrays والـ strings والـ VLAs. <b>متستعجلش هنا</b> — كل اللي جاي مبني عليه.</p></div></div>
+          <div class="step"><span class="n">02</span><div><h4>الذاكرة والبوينترز (07 → 12)</h4><p>قلب لغة C وقلب الـ RE: pointers، تخطيط الذاكرة، الـ heap، الـ hash tables والـ trees، الـ structs والـ padding، الـ preprocessor وC11/C23، وقراءة الملفات الـ binary وerrno.</p></div></div>
           <div class="step"><span class="n">03</span><div><h4>C تحت المجهر (13 → 17)</h4><p>Assembly x86-64، إزاي كل تركيبة C بتتحول لـ Assembly، الـ calling conventions، الـ Undefined Behavior والثغرات، ملفات PE/ELF، وC على Windows زي ما بتشوفها في الـ samples.</p></div></div>
-          <div class="step"><span class="n">04</span><div><h4>المشاريع والمرجع (18 → 19)</h4><p>مشاريع حقيقية بأدوات بيستخدمها المحللين: hexdump، strings extractor، XOR decoder، PE parser، crackme تكتبه وتكسره بنفسك، وVM interpreter صغير.</p></div></div>
+          <div class="step"><span class="n">04</span><div><h4>C على مستوى النظام (18 → 22)</h4><p>الـ threads والتزامن، الـ processes والـ signals والـ pipes، الـ sockets وإزاي الـ C2 بيتكلم، المكتبات (.so وDLLs وsideloading وLD_PRELOAD)، وC++ زي ما بتشوفها في الـ binary (vtables، RTTI، STL).</p></div></div>
+          <div class="step"><span class="n">05</span><div><h4>المشاريع والمرجع (23 → النهاية)</h4><p>مشاريع حقيقية بأدوات بيستخدمها المحللين: hexdump، strings extractor، XOR decoder، PE parser، crackme تكتبه وتكسره بنفسك، وVM interpreter صغير.</p></div></div>
         </div>
 
         <h3 class="sub">إزاي تستخدم الصفحة <span class="tag">workflow</span></h3>
         <div class="grid-3">
-          <div class="card reveal"><div class="ico">▶</div><h4>شغّل الكود</h4><p>زرار <b>تشغيل</b> بيعمل compile حقيقي بـ <b>gcc 15.2</b> على Compiler Explorer (Linux x86-64) ويرجعلك المخرجات.</p></div>
+          <div class="card reveal"><div class="ico">▶</div><h4>شغّل الكود</h4><p>زرار <b>تشغيل</b> بيعمل compile حقيقي بـ <b>gcc 15.2</b> (و<b>g++ 15.2</b> لأمثلة C++) على Compiler Explorer (Linux x86-64) ويرجعلك المخرجات.</p></div>
           <div class="card reveal"><div class="ico">⚙</div><h4>شوف الـ Assembly</h4><p>زرار <b>ASM</b> بيعرض الـ Assembly بصيغة Intel، وتقدر تبدّل بين <code>-O0</code> و<code>-O1</code> و<code>-O2</code> و<code>-Os</code>.</p></div>
           <div class="card reveal"><div class="ico">🎯</div><h4>حل التحديات</h4><p>كل تحدي بيتصحح أوتوماتيك: الكود بيتعمله compile ويتشغل، والمخرجات بتتقارن بالمطلوب حرف بحرف.</p></div>
         </div>

@@ -1,0 +1,527 @@
+      <section class="section" id="s22" data-part="الجزء 4 · C على مستوى النظام" data-nav="C++ للـ Reverser" data-icon="➕" data-keywords="c++ cpp class object this pointer thiscall member function name mangling itanium msvc demangle c++filt undname extern c constructor destructor new delete operator new raii virtual vtable vptr vfptr virtual call rtti typeid type descriptor .?av class recovery inheritance multiple inheritance thunk exception throw catch __cxa_throw _cxxthrowexception e06d7363 stl std::string sso small string optimization std::vector std::map unique_ptr shared_ptr template lambda classinformer ooanalyzer">
+        <div class="section-head">
+          <span class="section-index">22</span>
+          <div>
+            <p class="eyebrow">المرحلة الثانية والعشرون</p>
+            <h2>C++ للـ Reverser: إزاي تتعرف على C++ في الـ Binary</h2>
+            <p class="lede">جزء كبير من الـ malware (RATs، ransomware، loaders حديثة) مكتوب بـ <b>C++</b>. الكود الناتج شكله غريب لو متعود على C: <code>this</code> مستخبي في register، calls على <code>[rax+10h]</code>، أسماء زي <code>_ZN6Beacon10next_sleepEi</code>، ومئات الدوال من الـ STL. المرحلة دي <b>مش</b> عشان تتعلم تكتب C++، دي عشان لما تفتح binary C++ في Ghidra تعرف كل تركيبة بتتحول لإيه، وتعيد بناء الـ classes.</p>
+          </div>
+        </div>
+
+        <div class="callout info"><span class="ci">⚙️</span><div><strong>الأمثلة هنا C++</strong><p>زرار التشغيل والـ ASM في المرحلة دي بيستخدموا <b>g++ 15.2</b> بـ <code>-std=c++20</code>. على جهازك: <code>g++ -std=c++20 -Wall -Wextra file.cpp</code>.</p></div></div>
+
+        <h3 class="sub">الـ Class = Struct + Functions بـ <code>this</code> مستخبي <span class="tag">this</span></h3>
+        <p>الـ member function مفيهاش أي سحر: هي دالة عادية بتاخد <b>argument أول مخفي</b> اسمه <code>this</code> (عنوان الـ object). على Linux x64 بييجي في <code>rdi</code>، وعلى Windows x64 في <code>rcx</code> (في 32-bit MSVC كان في <code>ecx</code>، واسمها <i>thiscall</i>). والـ methods مش بتاخد أي مساحة جوه الـ object: الـ object = الـ data members بس.</p>
+        <cpp-example file="this.cpp">
+#include <cstdio>
+
+struct Beacon {
+    int id;
+    int interval;
+    int next_sleep(int jitter) { return interval + jitter; }   // uses this->interval
+};
+
+// What the compiler really generates, written as plain C:
+static int Beacon_next_sleep(Beacon *self, int jitter) { return self->interval + jitter; }
+
+int main() {
+    Beacon b{7, 60};
+    std::printf("sizeof(Beacon) = %zu (methods take no space)\n", sizeof b);
+    std::printf("b.next_sleep(5)          = %d\n", b.next_sleep(5));
+    std::printf("Beacon_next_sleep(&b, 5) = %d (same thing, explicit this)\n",
+                Beacon_next_sleep(&b, 5));
+}
+        </cpp-example>
+        <asm-block file="g++ -O1 (noinline, symbols NOT demangled)">
+_ZN6Beacon10next_sleepEi:              ; Beacon::next_sleep(int)
+        mov     eax, esi                ; esi = jitter (2nd arg)
+        add     eax, DWORD PTR [rdi+4]  ; rdi = this -> this->interval (offset 4)
+        ret
+_Z3useP6Beacon:                         ; use(Beacon*)
+        sub     rsp, 8
+        mov     esi, 7                  ; jitter = 7
+        call    _ZN6Beacon10next_sleepEi ; rdi is still b -> passed as this
+        add     rsp, 8
+        ret
+        </asm-block>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>علامة الـ method في الـ disassembly</strong><p>دالة بتستخدم <code>rcx</code> (Windows) أو <code>rdi</code> (Linux) كـ <b>base pointer</b> للوصول لـ offsets (<code>[rcx+8]</code>، <code>[rcx+10h]</code>)، ومحدش بيستخدمه كقيمة عادية = غالبًا method والـ register ده <code>this</code>. في Ghidra: اعمل struct جديد للـ class، وغيّر الـ calling convention للدالة لـ <code>__thiscall</code>، وأول parameter هيبقى <code>this</code> من النوع ده، والـ offsets هتبقى أسماء fields.</p></div></div>
+
+        <h3 class="sub">Name Mangling: الأسماء المشفّرة <span class="tag">c++filt</span></h3>
+        <p>C++ بتسمح بـ overloading (أكتر من دالة بنفس الاسم)، فالـ compiler بيحط الـ namespace والـ class وأنواع الـ parameters <b>جوه اسم الـ symbol</b>. وفيه نظامين: <b>Itanium</b> (GCC/Clang على Linux وmacOS وMinGW) و<b>MSVC</b> (Visual Studio).</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الكود</th><th>Itanium (gcc / clang)</th><th>MSVC</th></tr></thead>
+            <tbody>
+              <tr><td><code>int Beacon::next_sleep(int)</code></td><td><code>_ZN6Beacon10next_sleepEi</code></td><td><code>?next_sleep@Beacon@@QEAAHH@Z</code></td></tr>
+              <tr><td><code>Sleep *make()</code></td><td><code>_Z4makev</code></td><td><code>?make@@YAPEAUSleep@@XZ</code></td></tr>
+              <tr><td><code>operator new(size_t)</code></td><td><code>_Znwm</code></td><td><code>??2@YAPEAX_K@Z</code></td></tr>
+              <tr><td><code>extern "C" int f(int)</code></td><td><code>f</code> (من غير mangling)</td><td><code>f</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <plain-block file="terminal">
+$ echo _ZN6Beacon10next_sleepEi | c++filt
+Beacon::next_sleep(int)
+# Itanium:  _Z  N  6Beacon  10next_sleep  E  i
+#           |   |  len+name len+name      |  params: i = int
+#           |   nested name starts        nested name ends
+# MSVC names: undname.exe "?next_sleep@Beacon@@QEAAHH@Z"  (or any online demangler)
+        </plain-block>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ mangled names هدية</strong><p>لو الـ binary مش stripped أو فيه exports، الاسم المشفّر بيديك اسم الـ class والـ namespace <b>وأنواع الـ parameters</b> ببلاش. Ghidra وIDA بيعملوا demangle أوتوماتيك. و<code>extern "C"</code> بيلغي الـ mangling، وده سبب إن exports الـ DLLs المكتوبة بـ C++ غالبًا أسماؤها نضيفة.</p></div></div>
+
+        <h3 class="sub">Constructors و Destructors و new/delete <span class="tag">RAII</span></h3>
+        <p><code>new T(args)</code> = خطوتين: <code>operator new(sizeof(T))</code> (زي <code>malloc</code>) وبعدين نداء الـ <b>constructor</b> على العنوان اللي رجع. و<code>delete p</code> = الـ <b>destructor</b> وبعدين <code>operator delete</code>. والـ objects اللي على الـ stack الـ destructor بتاعها بيتنادى أوتوماتيك لما الـ scope يخلص (<b>RAII</b>).</p>
+        <cpp-example file="raii.cpp">
+#include <cstdio>
+#include <memory>
+
+struct Handle {
+    const char *name;
+    explicit Handle(const char *n) : name(n) { std::printf("open  %s\n", name); }
+    ~Handle() { std::printf("close %s\n", name); }
+};
+
+int main() {
+    Handle a("config.dat");                          // stack: ctor now, dtor at the final }
+    {
+        auto b = std::make_unique<Handle>("socket"); // heap: operator new + ctor
+        std::printf("using %s and %s\n", a.name, b->name);
+    }                                                // b: dtor + operator delete HERE
+    Handle *raw = new Handle("log.txt");
+    delete raw;                                      // dtor, then operator delete
+    std::printf("end of main\n");
+}                                                    // a's dtor runs here
+        </cpp-example>
+        <asm-block file="Sleep *make() { return new Sleep(30); }   (g++ -O1)">
+make():
+        push    rbx
+        mov     edi, 4                  ; sizeof(Sleep) = 4
+        call    operator new(unsigned long)   ; _Znwm  (MSVC: ??2@YAPEAX_K@Z)
+        mov     rbx, rax                ; keep the new object
+        mov     esi, 30                 ; ctor argument
+        mov     rdi, rax                ; this = the new memory
+        call    Sleep::Sleep(int)       ; constructor
+        mov     rax, rbx
+        pop     rbx
+        ret
+        </asm-block>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>اقرا حجم الـ class من <code>operator new</code></strong><p>النمط ده بيقولك كتير: الرقم اللي قبل <code>operator new</code> = <b><code>sizeof</code> الـ class</b>، والدالة اللي بتتنادى بعدها بـ <code>this</code> = الذاكرة الجديدة = <b>الـ constructor</b>. جوه الـ constructor هتلاقي أول سطر غالبًا <code>mov qword ptr [rcx], offset vftable</code>: ده بيحط الـ <b>vtable</b> (تحت)، وعنوانه بيقولك نوع الـ object بالظبط. والـ objects الـ global بتتعمل قبل <code>main</code> (في <code>.init_array</code> على Linux، وفي <code>_initterm</code> على MSVC).</p></div></div>
+
+        <h3 class="sub">Virtual Functions و الـ vtable <span class="tag">vptr</span></h3>
+        <p>لما class فيها دالة <code>virtual</code>، كل object بياخد <b>pointer مخفي في أول 8 bytes</b> اسمه <b>vptr</b>، بيشاور على <b>vtable</b>: جدول ثابت في <code>.rodata</code>/<code>.rdata</code> فيه عناوين الدوال الـ virtual للـ class دي. النداء <code>c-&gt;run()</code> بيبقى: اقرا الـ vptr، اقرا العنوان من الجدول، ونادي. ده الـ dispatch table من المرحلة 08 بالظبط، بس الـ compiler بيعمله لوحده.</p>
+        <cpp-example file="vtable.cpp">
+#include <cstdio>
+#include <typeinfo>
+
+struct Command {
+    virtual ~Command() = default;
+    virtual int run(int arg) const = 0;                    // pure virtual
+    virtual const char *name() const { return "Command"; }
+};
+struct Sleep : Command {
+    int run(int arg) const override { return arg * 1000; }
+    const char *name() const override { return "Sleep"; }
+};
+struct Exit : Command {
+    int run(int) const override { return -1; }            // name() NOT overridden
+};
+
+int dispatch(const Command *c, int arg) { return c->run(arg); }  // virtual call
+
+int main() {
+    Sleep s;
+    Exit e;
+    const Command *cmds[] = { &s, &e };
+    for (const Command *c : cmds)
+        std::printf("%-7s run(5) = %5d   typeid name = %s\n",
+                    c->name(), dispatch(c, 5), typeid(*c).name());
+
+    std::printf("sizeof(Sleep) = %zu (only the hidden vptr)\n", sizeof s);
+    Sleep s2;
+    void *vp1 = *reinterpret_cast<void **>(&s);   // read the first 8 bytes
+    void *vp2 = *reinterpret_cast<void **>(&s2);
+    void *vp3 = *reinterpret_cast<void **>(&e);
+    std::printf("two Sleep objects share one vtable? %s\n", vp1 == vp2 ? "yes" : "no");
+    std::printf("Sleep and Exit share a vtable?      %s\n", vp1 == vp3 ? "yes" : "no");
+}
+        </cpp-example>
+        <asm-block file="int dispatch(const Command *c, int arg)   (g++ -O2)">
+dispatch(Command const*, int):
+        mov     rax, QWORD PTR [rdi]        ; rax = c->vptr (first 8 bytes of the object)
+        jmp     [QWORD PTR [rax+16]]        ; vtable[2] = run   (tail call)
+; vtable for Sleep (in .rodata):
+;   [0]  Sleep::~Sleep()          complete-object destructor
+;   [8]  Sleep::~Sleep()          deleting destructor (dtor + operator delete)
+;   [16] Sleep::run(int) const
+;   [24] Sleep::name() const
+; and right before the table (at vtable-8): pointer to the RTTI typeinfo
+        </asm-block>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>إعادة بناء الـ classes من RTTI</strong><p>الـ <b>RTTI</b> (اللي <code>typeid</code> و<code>dynamic_cast</code> بيستخدموه) بيفضل جوه الـ binary غالبًا، وفيه <b>أسماء الـ classes</b>! على MSVC دوّر في الـ strings على <code>.?AV</code> (class) و<code>.?AU</code> (struct): مثلًا <code>.?AVKeylogger@@</code> = فيه class اسمها <code>Keylogger</code>. وعلى Itanium الأسماء شكلها <code>5Sleep</code> و<code>7Command</code> (اللي طبعها المثال). والـ RTTI كمان بيوصف الوراثة (مين بيورث مين). أدوات: سكربت <b>RecoverClassesFromRTTIScript</b> في Ghidra، وplugin <b>ClassInformer</b> في IDA، و<b>OOAnalyzer</b>. ولما تلاقي <code>call qword ptr [rax+18h]</code>: <code>0x18 / 8 = 3</code> = الدالة رقم 3 في الـ vtable. افتح الـ vtable وشوف مين.</p></div></div>
+        <div class="callout tip"><span class="ci">🧬</span><div><strong>الوراثة المتعددة و الـ thunks</strong><p>لو class بتورث من اتنين (<code>struct C : A, B</code>)، الـ object فيه أكتر من vptr، والـ pointer لـ <code>B</code> جوه <code>C</code> بيبقى على offset تاني. عشان كده هتلاقي دوال صغيرة جدًا اسمها <b>thunks</b>: <code>sub rdi, 10h</code> ← <code>jmp C::method</code>. ده تصحيح لـ <code>this</code> قبل النداء، مش منطق حقيقي. ونفس الشكل في COM interfaces على Windows (<code>QueryInterface</code>/<code>AddRef</code>/<code>Release</code> = أول 3 entries في كل vtable).</p></div></div>
+
+        <h3 class="sub">Exceptions <span class="tag">throw · catch</span></h3>
+        <cpp-example file="exceptions.cpp">
+#include <cstdio>
+#include <stdexcept>
+#include <typeinfo>
+
+static int parse_port(int value) {
+    if (value <= 0 || value > 65535)
+        throw std::out_of_range("bad port");     // __cxa_allocate_exception + __cxa_throw
+    return value;
+}
+
+int main() {
+    const int tests[] = { 443, 70000 };
+    for (int v : tests) {
+        try {
+            std::printf("port %d ok\n", parse_port(v));
+        } catch (const std::exception &ex) {      // found via the unwind tables
+            std::printf("caught: %s (type %s)\n", ex.what(), typeid(ex).name());
+        }
+    }
+}
+        </cpp-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ catch مش ظاهر في الـ control flow</strong><p>الكود اللي جوه <code>catch</code> مفيش أي <code>jmp</code> بيوصله: الـ runtime بيلاقيه من <b>unwind tables</b> (<code>.eh_frame</code>/<code>.gcc_except_table</code> على Linux، و<code>.pdata</code>/<code>.xdata</code> + FuncInfo على MSVC). يعني Ghidra ممكن يعرضه كـ "dead code". على Windows: <code>throw</code> = <code>_CxxThrowException</code>، والـ exception code بتاعه <b><code>0xE06D7363</code></b> (<code>0xE0</code> + <code>"msc"</code>). لو شفته في x64dbg كـ first-chance exception، ده C++ throw عادي. والـ malware أحيانًا بيرمي exceptions عمدًا عشان يقفز لكود جوه handler ويلخبط التحليل.</p></div></div>
+
+        <h3 class="sub">الـ STL من جوه: string و vector <span class="tag">memory layout</span></h3>
+        <p>الـ STL بيضيف آلاف الدوال للـ binary. السر إنك تعرف <b>شكل الـ objects في الذاكرة</b>، فلما تشوف struct فيه 3 pointers ورا بعض تعرف إنه <code>std::vector</code>، وتتجاهل كود الـ STL نفسه.</p>
+        <cpp-example file="stl_layout.cpp">
+#include <cstdio>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+static bool inside(const void *obj, std::size_t size, const void *p) {
+    auto o = reinterpret_cast<std::uintptr_t>(obj);
+    auto q = reinterpret_cast<std::uintptr_t>(p);
+    return q >= o && q < o + size;
+}
+
+int main() {
+    std::string small = "cmd.exe";        // 7 chars
+    std::string big(40, 'A');             // 40 chars
+    std::printf("sizeof(std::string) = %zu\n", sizeof small);
+    std::printf("\"cmd.exe\" stored inside the object? %s  (SSO)\n",
+                inside(&small, sizeof small, small.data()) ? "yes" : "no");
+    std::printf("40 x 'A' stored inside the object? %s  (heap buffer)\n",
+                inside(&big, sizeof big, big.data()) ? "yes" : "no");
+
+    std::vector<int> v = { 10, 20, 30 };
+    v.reserve(8);
+    auto ptrs = reinterpret_cast<int **>(&v);   // peek at the 3 hidden pointers
+    std::printf("sizeof(std::vector<int>) = %zu (3 pointers)\n", sizeof v);
+    std::printf("size     = end     - begin = %td\n", ptrs[1] - ptrs[0]);
+    std::printf("capacity = cap_end - begin = %td\n", ptrs[2] - ptrs[0]);
+}
+        </cpp-example>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>النوع</th><th>libstdc++ (gcc، Linux) x64</th><th>MSVC x64</th></tr></thead>
+            <tbody>
+              <tr><td><code>std::string</code> (32 byte)</td><td><code>+0</code> pointer للبيانات، <code>+8</code> الطول، <code>+16</code> buffer داخلي 16 byte (أو الـ capacity)</td><td><code>+0</code> buffer داخلي 16 byte <b>أو</b> pointer، <code>+16</code> الطول، <code>+24</code> الـ capacity. لو capacity &gt; 15 يبقى أول 8 bytes pointer</td></tr>
+              <tr><td><code>std::vector&lt;T&gt;</code> (24)</td><td colspan="2">3 pointers: begin، end، end_of_capacity. عدد العناصر = <code>(end - begin) / sizeof(T)</code></td></tr>
+              <tr><td><code>std::unique_ptr&lt;T&gt;</code> (8)</td><td colspan="2">pointer واحد بس</td></tr>
+              <tr><td><code>std::shared_ptr&lt;T&gt;</code> (16)</td><td colspan="2">pointer للـ object + pointer للـ control block (فيه الـ reference counts، وبيتغير بـ <code>lock xadd</code>)</td></tr>
+              <tr><td><code>std::map</code></td><td>red-black tree، كل node فيها color + 3 pointers + key/value</td><td>pointer للـ head node + size (16 byte)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ SSO في الـ debugger</strong><p>في MSVC: لو <code>[obj+0x18]</code> (الـ capacity) ≤ 15، النص <b>نفسه</b> في أول 16 byte من الـ object، ولو أكبر، أول 8 bytes pointer للنص. لما تعمل dump لـ <code>std::string</code> مستخدم كـ config value (URL، مفتاح)، اتأكد من الحالة دي الأول. والـ templates: كل نوع بيعمل نسخة منفصلة من الكود (<code>vector&lt;int&gt;</code> و<code>vector&lt;char&gt;</code> = دوال مختلفة)، وكل <b>lambda</b> بتبقى class صغيرة فيها <code>operator()</code> بأسماء زي <code>main::{lambda(int)#1}::operator()</code>.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 22</h3></div>
+
+          <quiz id="s22-q1" answer="2">
+            <q>Windows x64: <code>mov rax, [rcx]</code> ← <code>mov edx, 5</code> ← <code>call qword ptr [rax+18h]</code>. ده إيه؟</q>
+            <o>نداء دالة global عادية</o>
+            <o>قراية array من الـ ints</o>
+            <o>Virtual call: <code>rcx</code> = <code>this</code>، <code>[rcx]</code> = الـ vptr، و<code>+18h</code> = الدالة رقم 3 في الـ vtable (index من 0)، بـ argument = 5</o>
+            <o>Exception</o>
+            <good><code>0x18 / 8 = 3</code>. افتح الـ vtable بتاع الـ class (من الـ constructor) وشوف الـ entry الرابعة.</good>
+            <bad>إيه اللي في أول 8 bytes من أي object فيه دوال virtual؟</bad>
+          </quiz>
+
+          <quiz id="s22-q2" answer="0">
+            <q>إيه الـ demangling بتاع <code>_ZN3net6Client7connectEv</code>؟</q>
+            <o><code>net::Client::connect()</code></o>
+            <o><code>Client::net::connect(void)</code></o>
+            <o><code>connect(net, Client)</code></o>
+            <o><code>net6Client7connect</code></o>
+            <good><code>N</code> … <code>E</code> = اسم متداخل: <code>3net</code>، <code>6Client</code>، <code>7connect</code>، و<code>v</code> = مفيش parameters.</good>
+            <bad>كل اسم قدامه طوله: <code>3</code> → 3 حروف.</bad>
+          </quiz>
+
+          <quiz id="s22-q3" answer="3">
+            <q>في الـ strings بتاعة sample (MSVC) لقيت: <code>.?AVKeylogger@@</code> و<code>.?AVScreenGrabber@@</code> و<code>.?AVModule@@</code>. ده إيه؟</q>
+            <o>Function names مصدّرة</o>
+            <o>Registry keys</o>
+            <o>نصوص مشفّرة</o>
+            <o>RTTI type descriptors: أسماء الـ classes اللي في البرنامج، وغالبًا <code>Keylogger</code> و<code>ScreenGrabber</code> بيورثوا من <code>Module</code></o>
+            <good>الـ RTTI بيسرّب أسماء الـ classes حتى في binary stripped. ابدأ من الـ vtables المرتبطة بيهم.</good>
+            <bad><code>.?AV</code> = بادئة MSVC لـ type descriptor بتاع class.</bad>
+          </quiz>
+
+          <quiz id="s22-q4" answer="1">
+            <q><code>mov ecx, 40h</code> ← <code>call ??2@YAPEAX_K@Z</code> ← <code>mov rcx, rax</code> ← <code>call sub_140012A0</code>. إيه أحسن تسمية لـ <code>sub_140012A0</code>؟</q>
+            <o><code>malloc</code></o>
+            <o>Constructor لـ class حجمها <code>0x40</code> byte (بياخد الذاكرة الجديدة كـ <code>this</code>)</o>
+            <o>Destructor</o>
+            <o><code>main</code></o>
+            <good><code>??2@YAPEAX_K@Z</code> = <code>operator new(size_t)</code>. الذاكرة الراجعة بتتبعت كـ <code>this</code> = constructor. اعمل struct بحجم 0x40.</good>
+            <bad>Demangle الـ <code>??2</code> الأول، وبعدين بص الـ <code>rax</code> راح فين.</bad>
+          </quiz>
+
+          <quiz id="s22-q5" answer="2">
+            <q>x64dbg وقف على first-chance exception بالكود <code>0xE06D7363</code>. ده إيه غالبًا؟</q>
+            <o>Access violation</o>
+            <o>Breakpoint</o>
+            <o>C++ <code>throw</code> (MSVC بيرمي exceptions بالكود ده عن طريق <code>_CxxThrowException</code>)</o>
+            <o>Stack overflow</o>
+            <good><code>0xE0</code> + <code>'m' 's' 'c'</code>. اعمل pass للـ exception للبرنامج عشان الـ <code>catch</code> بتاعه يتعامل معاها.</good>
+            <bad>حوّل <code>6D 73 63</code> لـ ASCII.</bad>
+          </quiz>
+
+          <quiz id="s22-q6" answer="0">
+            <q>في struct جوه class لقيت 3 حقول 8 byte ورا بعض، والكود بيعمل <code>(field2 - field1) / 4</code> عشان يجيب عدد. أرجح نوع؟</q>
+            <o><code>std::vector</code> لعناصر حجمها 4 bytes (begin / end / capacity)</o>
+            <o><code>std::string</code></o>
+            <o>3 ints</o>
+            <o><code>std::unique_ptr</code></o>
+            <good><code>(end - begin) / sizeof(T)</code> = <code>size()</code>. والقسمة على 4 بتقولك إن <code>T</code> غالبًا <code>int</code> أو <code>float</code>.</good>
+            <bad>إيه الـ STL container اللي جواه 3 pointers؟</bad>
+          </quiz>
+
+          <challenge id="s22-c1" title="اعمل vtable بإيدك في C" level="2">
+            <desc>اعمل اللي الـ C++ compiler بيعمله لوحده: <code>Shape</code> أول field فيه <code>vptr</code> لـ struct من function pointers (<code>name</code> و<code>area</code>). اعمل 3 "classes": <code>Square</code> (<code>w*w</code>)، <code>Rect</code> (<code>w*h</code>)، <code>Triangle</code> (<code>w*h/2</code>)، كل واحدة ليها vtable ثابت. امشي على array من الأشكال ونادي عن طريق الـ vptr بس:<br><code>Square area = 16</code><br><code>Rect area = 15</code><br><code>Triangle area = 9</code><br><code>total = 40</code></desc>
+            <starter>
+#include <stdio.h>
+
+typedef struct Shape Shape;
+typedef struct {
+    const char *(*name)(const Shape *self);
+    int (*area)(const Shape *self);
+} ShapeVtbl;
+
+struct Shape {
+    const ShapeVtbl *vptr;     /* hidden first field, like C++ */
+    int w, h;
+};
+
+// TODO: functions + one const ShapeVtbl per "class" (Square, Rect, Triangle)
+
+int main(void) {
+    // TODO: Square w=4, Rect 3x5, Triangle 6x3; call through s->vptr only
+    return 0;
+}
+            </starter>
+            <expected>
+Square area = 16
+Rect area = 15
+Triangle area = 9
+total = 40
+            </expected>
+            <solution>
+#include <stdio.h>
+
+typedef struct Shape Shape;
+typedef struct {
+    const char *(*name)(const Shape *self);
+    int (*area)(const Shape *self);
+} ShapeVtbl;
+
+struct Shape {
+    const ShapeVtbl *vptr;     /* hidden first field, like C++ */
+    int w, h;
+};
+
+static const char *square_name(const Shape *s) { (void)s; return "Square"; }
+static int square_area(const Shape *s) { return s->w * s->w; }
+static const char *rect_name(const Shape *s) { (void)s; return "Rect"; }
+static int rect_area(const Shape *s) { return s->w * s->h; }
+static const char *tri_name(const Shape *s) { (void)s; return "Triangle"; }
+static int tri_area(const Shape *s) { return s->w * s->h / 2; }
+
+static const ShapeVtbl SquareVtbl   = { square_name, square_area };
+static const ShapeVtbl RectVtbl     = { rect_name, rect_area };
+static const ShapeVtbl TriangleVtbl = { tri_name, tri_area };
+
+int main(void) {
+    Shape shapes[] = {
+        { &SquareVtbl, 4, 4 },
+        { &RectVtbl, 3, 5 },
+        { &TriangleVtbl, 6, 3 },
+    };
+    int total = 0;
+    for (int i = 0; i < 3; i++) {
+        const Shape *s = &shapes[i];
+        int a = s->vptr->area(s);              /* = call [rax+8] */
+        printf("%s area = %d\n", s->vptr->name(s), a);
+        total += a;
+    }
+    printf("total = %d\n", total);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s22-c2" title="Demangler صغير (Itanium)" level="3">
+            <desc>اكتب demangler لجزء من نظام Itanium (بدون الـ parameters): لو الاسم مش بيبدأ بـ <code>_Z</code> فهو مش mangled. بعد <code>_Z</code>: لو فيه <code>N</code> يبقى اسم متداخل، اتجاهل <code>K</code> (const) لو جه بعدها، وبعدين اقرا <i>طول + اسم</i> لحد ما توصل <code>E</code> وافصل بـ <code>::</code>. من غير <code>N</code>: اسم واحد بطوله. اطبع:<br><code>_ZN6Beacon10next_sleepEi -> Beacon::next_sleep</code><br><code>_ZN3net6Client7connectEv -> net::Client::connect</code><br><code>_ZNK7Command4nameEv -> Command::name</code><br><code>_Z7decryptPhm -> decrypt</code><br><code>main -> main (not mangled)</code></desc>
+            <starter>
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+static void demangle(const char *sym) {
+    // TODO: build the qualified name in a local buffer and print "sym -> name"
+    printf("%s -> ?\n", sym);
+}
+
+int main(void) {
+    const char *syms[] = {
+        "_ZN6Beacon10next_sleepEi", "_ZN3net6Client7connectEv",
+        "_ZNK7Command4nameEv", "_Z7decryptPhm", "main",
+    };
+    for (int i = 0; i < 5; i++) demangle(syms[i]);
+    return 0;
+}
+            </starter>
+            <expected>
+_ZN6Beacon10next_sleepEi -> Beacon::next_sleep
+_ZN3net6Client7connectEv -> net::Client::connect
+_ZNK7Command4nameEv -> Command::name
+_Z7decryptPhm -> decrypt
+main -> main (not mangled)
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+/* Read "<len><chars>" at *p, append it to out, advance *p. Returns 0 on error. */
+static int read_part(const char **p, char *out, size_t cap) {
+    if (!isdigit((unsigned char)**p)) return 0;
+    size_t len = 0;
+    while (isdigit((unsigned char)**p)) len = len * 10 + (size_t)(*(*p)++ - '0');
+    if (strlen(*p) < len || strlen(out) + len + 1 > cap) return 0;
+    strncat(out, *p, len);
+    *p += len;
+    return 1;
+}
+
+static void demangle(const char *sym) {
+    char out[128] = "";
+    if (strncmp(sym, "_Z", 2) != 0) {
+        printf("%s -> %s (not mangled)\n", sym, sym);
+        return;
+    }
+    const char *p = sym + 2;
+    if (*p == 'N') {
+        p++;
+        if (*p == 'K') p++;                 /* const member function */
+        int first = 1;
+        while (*p && *p != 'E') {
+            if (!first) strcat(out, "::");
+            if (!read_part(&p, out, sizeof out)) { printf("%s -> ?\n", sym); return; }
+            first = 0;
+        }
+    } else if (!read_part(&p, out, sizeof out)) {
+        printf("%s -> ?\n", sym);
+        return;
+    }
+    printf("%s -> %s\n", sym, out);
+}
+
+int main(void) {
+    const char *syms[] = {
+        "_ZN6Beacon10next_sleepEi", "_ZN3net6Client7connectEv",
+        "_ZNK7Command4nameEv", "_Z7decryptPhm", "main",
+    };
+    for (int i = 0; i < 5; i++) demangle(syms[i]);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s22-c3" title="Class hierarchy بـ virtual" lang="cpp">
+            <desc>(C++) الـ base class <code>Command</code> فيها <code>virtual std::string describe() const = 0</code>. كمّل <code>Sleep</code> و<code>Upload</code> عشان الـ loop اللي في <code>main</code> (بينادي عن طريق pointer للـ base) يطبع:<br><code>0: ping</code><br><code>1: sleep 30s</code><br><code>2: upload report.txt</code></desc>
+            <starter>
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <vector>
+
+struct Command {
+    virtual ~Command() = default;
+    virtual std::string describe() const = 0;
+};
+
+struct Ping : Command {
+    std::string describe() const override { return "ping"; }
+};
+
+struct Sleep : Command {
+    int seconds;
+    explicit Sleep(int s) : seconds(s) {}
+    std::string describe() const override { return "TODO"; }   // "sleep 30s"
+};
+
+struct Upload : Command {
+    std::string file;
+    explicit Upload(std::string f) : file(std::move(f)) {}
+    std::string describe() const override { return "TODO"; }   // "upload <file>"
+};
+
+int main() {
+    std::vector<std::unique_ptr<Command>> cmds;
+    cmds.push_back(std::make_unique<Ping>());
+    cmds.push_back(std::make_unique<Sleep>(30));
+    cmds.push_back(std::make_unique<Upload>("report.txt"));
+    for (std::size_t i = 0; i < cmds.size(); i++)
+        std::printf("%zu: %s\n", i, cmds[i]->describe().c_str());
+}
+            </starter>
+            <expected>
+0: ping
+1: sleep 30s
+2: upload report.txt
+            </expected>
+            <solution>
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <vector>
+
+struct Command {
+    virtual ~Command() = default;
+    virtual std::string describe() const = 0;
+};
+
+struct Ping : Command {
+    std::string describe() const override { return "ping"; }
+};
+
+struct Sleep : Command {
+    int seconds;
+    explicit Sleep(int s) : seconds(s) {}
+    std::string describe() const override { return "sleep " + std::to_string(seconds) + "s"; }
+};
+
+struct Upload : Command {
+    std::string file;
+    explicit Upload(std::string f) : file(std::move(f)) {}
+    std::string describe() const override { return "upload " + file; }
+};
+
+int main() {
+    std::vector<std::unique_ptr<Command>> cmds;
+    cmds.push_back(std::make_unique<Ping>());
+    cmds.push_back(std::make_unique<Sleep>(30));
+    cmds.push_back(std::make_unique<Upload>("report.txt"));
+    for (std::size_t i = 0; i < cmds.size(); i++)
+        std::printf("%zu: %s\n", i, cmds[i]->describe().c_str());
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

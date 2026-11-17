@@ -180,8 +180,54 @@ int main(void) {
         </c-example>
         <p>اضغط <b>تشغيل</b> على الكود ده واقرا رسالة الخطأ: هتلاقي اسم الملف، ورقم السطر والعمود، ووصف المشكلة. <b>اتعود تقرا رسايل الـ compiler من أول رسالة</b> — الأخطاء اللي بعدها غالبًا نتيجة للأولى.</p>
 
+        <h3 class="sub">أول Debugger: GDB <span class="tag">gdb</span></h3>
+        <p>الـ <code>printf</code> مش طريقة debugging. الـ <b>debugger</b> بيخليك توقّف البرنامج في أي سطر، وتشوف كل متغير وكل register وكل byte في الذاكرة، وتمشي instruction instruction. ودي <b>أهم أداة للـ Reverser</b>: x64dbg وWinDbg هيبقوا نفس الأفكار بالظبط. اتعود عليه من دلوقتي على برامجك إنت (محتاج Linux/WSL، أو gdb من MSYS2 اللي ثبّته فوق):</p>
+        <plain-block file="gdb session">
+$ gcc -g -O0 printf_demo.c -o demo   # -g = debug info (lines, variable names)
+$ gdb -q ./demo
+(gdb) set disassembly-flavor intel   # Intel syntax, like IDA / x64dbg
+(gdb) break main                     # b main : stop when main starts
+(gdb) run                            # r      : start the program
+(gdb) next                           # n      : run ONE source line (step OVER calls)
+(gdb) step                           # s      : one line, step INTO the call
+(gdb) print age                      # p age  : show a variable
+(gdb) print/x flags                  # p/x    : ... in hex  -> 0xdeadbeef
+(gdb) x/8xb &flags                   # examine memory: 8 bytes in hex
+(gdb) info registers rip rsp         # i r    : current register values
+(gdb) backtrace                      # bt     : the call stack (who called whom)
+(gdb) disassemble                    # disas  : assembly of the current function
+(gdb) stepi                          # si     : execute ONE machine instruction
+(gdb) watch age                      # stop whenever 'age' changes
+(gdb) continue                       # c      : run until the next breakpoint
+(gdb) quit
+        </plain-block>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>العملية</th><th>GDB</th><th>x64dbg</th><th>WinDbg</th></tr></thead>
+            <tbody>
+              <tr><td>Breakpoint</td><td><code>b main</code> / <code>b *0x401136</code></td><td><code>F2</code> / <code>bp addr</code></td><td><code>bp addr</code></td></tr>
+              <tr><td>شغّل / كمّل</td><td><code>r</code> / <code>c</code></td><td><code>F9</code></td><td><code>g</code></td></tr>
+              <tr><td>Step over (سطر/instruction)</td><td><code>n</code> / <code>ni</code></td><td><code>F8</code></td><td><code>p</code></td></tr>
+              <tr><td>Step into</td><td><code>s</code> / <code>si</code></td><td><code>F7</code></td><td><code>t</code></td></tr>
+              <tr><td>اقرا ذاكرة</td><td><code>x/16xb addr</code></td><td>نافذة الـ Dump</td><td><code>db addr</code></td></tr>
+              <tr><td>الـ call stack</td><td><code>bt</code></td><td>تبويب Call Stack</td><td><code>k</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>على binary مالوش symbols</strong><p>الـ malware مش هيبقى فيه <code>-g</code>، ومش هتلاقي <code>main</code> بالاسم. هتستخدم: <code>starti</code> (وقّف على أول instruction خالص)، و<code>info file</code> (يوريك الـ Entry point)، و<code>break *0x401136</code> (breakpoint على عنوان)، و<code>x/20i $rip</code> (اعرض 20 instruction من مكانك). وثبّت <b>pwndbg</b> أو <b>GEF</b>: بيعرضوا الـ registers والـ stack والـ disassembly مع كل خطوة، فـ GDB بيبقى قريب من x64dbg.</p></div></div>
+
         <div class="exercises">
           <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 01</h3></div>
+
+          <quiz id="s01-q7" answer="1">
+            <q>في GDB، البرنامج واقف على سطر فيه <code>result = calc_key(x);</code>. عايز تدخل <b>جوه</b> <code>calc_key</code>. تكتب إيه؟</q>
+            <o><code>next</code></o>
+            <o><code>step</code></o>
+            <o><code>continue</code></o>
+            <o><code>finish</code></o>
+            <good><code>step</code> (<code>s</code>) بيدخل جوه الـ call. <code>next</code> (<code>n</code>) بينفذ الـ call كلها كخطوة واحدة. ونفس الفرق في x64dbg: <code>F7</code> مقابل <code>F8</code>.</good>
+            <bad>فيه "step over" و"step into". إنت عايز أنهي؟</bad>
+          </quiz>
 
           <quiz id="s01-q1" answer="2">
             <q>أنهي مرحلة من مراحل الـ build بتحوّل كود C لـ Assembly؟</q>

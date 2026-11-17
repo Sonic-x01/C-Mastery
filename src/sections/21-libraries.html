@@ -1,0 +1,403 @@
+      <section class="section" id="s21" data-part="الجزء 4 · C على مستوى النظام" data-nav="المكتبات: .a و .so و DLL" data-icon="📚" data-keywords="library libraries static shared dynamic .a .so .lib .dll ar fpic position independent ldd nm readelf needed rpath runpath ld_library_path ld_preload ld.so.preload dlopen dlsym dlclose dlerror rtld_next interposition hooking rootkit constructor destructor init_array dllmain dll_process_attach dllexport dllimport def file exports ordinal forwarded export rundll32 regsvr32 dllregisterserver sideloading search order hijacking proxy dll loader lock visibility">
+        <div class="section-head">
+          <span class="section-index">21</span>
+          <div>
+            <p class="eyebrow">المرحلة الواحدة والعشرون</p>
+            <h2>المكتبات: Static و Shared و DLLs (وإزاي الـ Malware بيستغلها)</h2>
+            <p class="lede">نص الـ malware على Windows بييجي كـ <b>DLL</b> مش EXE: بيتشغّل بـ <code>rundll32</code>، أو بيتحقن في process تاني، أو بيتحط جنب برنامج شرعي عشان البرنامج يحمّله بالغلط (<b>DLL sideloading</b>). وعلى Linux، الـ userland rootkits بتشتغل عن طريق <code>LD_PRELOAD</code>. عشان تفهم ده كله، لازم تعرف المكتبة بتتبني إزاي، وبتتحمل إزاي، والـ loader بيدور عليها فين.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">Static vs Shared <span class="tag">linking</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th></th><th>Static (<code>.a</code> / <code>.lib</code>)</th><th>Shared / Dynamic (<code>.so</code> / <code>.dll</code>)</th></tr></thead>
+            <tbody>
+              <tr><td>إمتى بتتربط؟</td><td>وقت الـ link: الكود بيتنسخ <b>جوه</b> الـ executable</td><td>وقت التشغيل: الـ loader بيحمّل الملف ويربط العناوين</td></tr>
+              <tr><td>حجم الـ binary</td><td>كبير</td><td>صغير</td></tr>
+              <tr><td>في الـ imports؟</td><td>❌ الدوال مش بتظهر كـ imports</td><td>✅ بتظهر في الـ Import Table / <code>NEEDED</code></td></tr>
+              <tr><td>للمحلل</td><td>آلاف الدوال من غير أسماء (libc، OpenSSL، zlib) لازم تتعرف بـ <b>FLIRT</b>/<b>Function ID</b> عشان متضيعش وقتك فيها</td><td>أسماء الـ APIs ظاهرة، وده أول دليل على السلوك</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>ليه الـ Linux malware غالبًا static؟</strong><p>الـ bots زي Mirai بتتعمل compile <b>static</b> (غالبًا بـ musl أو uClibc) لكل architecture (ARM، MIPS، x86) عشان تشتغل على أي router من غير ما تعتمد على المكتبات اللي عليه. النتيجة: <code>file</code> بيقول <i>statically linked, stripped</i>، ومفيش ولا import. وبرامج Go وRust static by default. أول خطوة: طبّق signatures للمكتبة عشان تفرز كودها من كود الـ malware.</p></div></div>
+
+        <h3 class="sub">ابنِ مكتبة Static و Shared بإيدك <span class="tag">ar · -fPIC</span></h3>
+        <plain-block file="terminal (Linux / WSL)">
+# xorlib.c contains:  void xor_buf(unsigned char *b, size_t n, unsigned char k);
+
+# ---- static library ----
+gcc -c -O2 xorlib.c -o xorlib.o        # compile to an object file
+ar rcs libxor.a xorlib.o               # archive = static library
+gcc main.c -L. -lxor -o app_static     # code is COPIED into app_static
+nm app_static | grep xor_buf           # T xor_buf  (defined inside the exe)
+
+# ---- shared library ----
+gcc -fPIC -shared -O2 xorlib.c -o libxor.so   # -fPIC: works at any address
+gcc main.c -L. -lxor -o app_shared
+LD_LIBRARY_PATH=. ./app_shared         # tell the loader where to look
+readelf -d app_shared | grep NEEDED    # (NEEDED) Shared library: [libxor.so]
+ldd app_shared                         # which file each NEEDED resolves to
+nm -D libxor.so                        # dynamic symbols = the "exports"
+        </plain-block>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>Position-Independent Code</strong><p>الـ shared library بتتحمل في عنوان مختلف كل مرة (ASLR)، فكودها لازم يشتغل من أي عنوان. <code>-fPIC</code> بيخلي الـ compiler يستخدم عناوين نسبية لـ <code>rip</code> (<code>lea rax, [rip+0x2f1a]</code>) والـ <b>GOT</b> للمتغيرات الخارجية. وده نفس السبب إن الـ shellcode بيبدأ غالبًا بحيلة <code>call $+5</code> ← <code>pop rax</code>: عشان يعرف هو فين في الذاكرة.</p></div></div>
+
+        <h3 class="sub">dlopen و dlsym: تحميل وقت التشغيل على Linux <span class="tag">dlfcn.h</span></h3>
+        <p>زي <code>LoadLibrary</code> + <code>GetProcAddress</code> (المرحلة 08) بالظبط: تحمّل <code>.so</code> وقت التشغيل وتجيب عنوان دالة بالاسم. الـ plugins بتشتغل كده، والـ malware بيستخدمها عشان الدوال متظهرش في الـ imports.</p>
+        <c-example file="dlopen.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <dlfcn.h>
+
+typedef double (*math_fn)(double);
+
+int main(void) {
+    void *lib = dlopen("libm.so.6", RTLD_NOW);       /* load the math library */
+    if (lib == NULL) { printf("dlopen: %s\n", dlerror()); return 1; }
+
+    const char *names[] = { "sqrt", "cbrt", "no_such_func" };
+    for (int i = 0; i < 3; i++) {
+        dlerror();                                    /* clear old errors */
+        math_fn f = (math_fn)dlsym(lib, names[i]);    /* void* -> fn pointer */
+        if (f == NULL) {
+            printf("%-12s -> not found\n", names[i]);
+            continue;
+        }
+        printf("%-12s(64.0) = %.2f\n", names[i], f(64.0));
+    }
+    dlclose(lib);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">كود بيشتغل قبل main <span class="tag">constructor · .init_array</span></h3>
+        <p>GCC بيسمحلك تعلّم دالة إنها <b>constructor</b>: تتنفذ وقت تحميل الـ binary أو الـ <code>.so</code>، <b>قبل</b> <code>main</code>. عناوين الدوال دي بتتحط في section اسمه <code>.init_array</code>. والـ <b>destructor</b> بيتنفذ بعد ما <code>main</code> ترجع.</p>
+        <c-example file="ctor.c">
+#include <stdio.h>
+
+__attribute__((constructor)) static void early(void) {
+    puts("constructor: runs before main (from .init_array)");
+}
+
+__attribute__((destructor)) static void late(void) {
+    puts("destructor : runs after main returns (from .fini_array)");
+}
+
+int main(void) {
+    puts("main       : running");
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>متبدأش من main</strong><p>أي <code>.so</code> فيها constructor بتشغّل كود <b>بمجرد تحميلها</b>، من غير ما حد ينادي أي دالة. ده بالظبط اللي بيعمله الـ malware بـ <code>LD_PRELOAD</code>. في Ghidra/IDA: بص على <code>.init_array</code> (Linux)، والـ <b>TLS callbacks</b> (المرحلة 16)، و<code>DllMain</code> (Windows)، والـ static constructors في C++ (المرحلة 22). أي واحد منهم ممكن يكون فيه anti-debug أو unpacking قبل ما توصل لـ <code>main</code>.</p></div></div>
+
+        <h3 class="sub">Symbol Interposition و LD_PRELOAD: إزاي الـ Hooking بيشتغل <span class="tag">RTLD_NEXT</span></h3>
+        <p>لما برنامج ينادي <code>puts</code>، الـ dynamic loader بيدور على الاسم في المكتبات <b>بالترتيب</b>، وأول تعريف يلاقيه هو اللي بيكسب. فلو فيه تعريف لـ <code>puts</code> قبل libc، هو اللي هيتنادي. وبعدين يقدر ينادي الأصلية عن طريق <code>dlsym(RTLD_NEXT, "puts")</code>. هنا بنعمل الحكاية جوه نفس البرنامج عشان تقدر تشغّلها:</p>
+        <c-example file="interpose.c" posix>
+#define _GNU_SOURCE                  /* for RTLD_NEXT */
+#include <stdio.h>
+#include <string.h>
+#include <dlfcn.h>
+
+typedef int (*puts_fn)(const char *);
+
+/* OUR puts: found before libc's, so every puts() call lands here */
+int puts(const char *s) {
+    static puts_fn real_puts;
+    if (real_puts == NULL)
+        real_puts = (puts_fn)dlsym(RTLD_NEXT, "puts");   /* the next one = libc */
+    if (strstr(s, "secret") != NULL)
+        return real_puts("[hook] line filtered");          /* hide / change data */
+    fputs("[hook] ", stdout);
+    return real_puts(s);
+}
+
+int main(void) {
+    puts("listing files...");
+    puts("secret_backdoor.so");
+    puts("report.pdf");
+    return 0;
+}
+        </c-example>
+        <p>بالظبط نفس الكود ده لو اتعمل compile كـ <code>.so</code> واتحط في <code>LD_PRELOAD</code> (أو في <code>/etc/ld.so.preload</code> لكل البرامج على الجهاز)، هيعمل hook لـ <code>puts</code> في أي برنامج. الـ userland rootkits (زي Jynx2 وAzazel وSymbiote) بتعمل كده مع <code>readdir</code> و<code>open</code> و<code>fopen</code> عشان تخبي ملفاتها وprocesses بتاعتها من <code>ls</code> و<code>ps</code> و<code>netstat</code>.</p>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>إزاي تكشف LD_PRELOAD rootkit</strong><p>(1) <code>cat /etc/ld.so.preload</code>: لازم يبقى مش موجود أو فاضي. (2) <code>cat /proc/&lt;pid&gt;/environ | tr '\0' '\n' | grep LD_</code>. (3) <code>cat /proc/&lt;pid&gt;/maps</code>: أي <code>.so</code> غريبة متحملة. (4) استخدم أدوات static (busybox static) لأن الـ rootkit مبيقدرش يعمل hook لـ binary معندوش dynamic linking. (5) في الـ <code>.so</code> نفسها: <code>nm -D</code> هيوريك إنها بتصدّر دوال بأسماء دوال libc (<code>readdir</code>، <code>fopen</code>)، وده مش طبيعي، ومعاها <code>dlsym</code> + <code>RTLD_NEXT</code> (القيمة <code>-1</code>).</p></div></div>
+
+        <h3 class="sub">DLLs على Windows: exports و DllMain <span class="tag">dllexport</span></h3>
+        <c-example file="mydll.c" win norun>
+#include <windows.h>
+
+/* Exported: appears in the DLL's Export Directory */
+__declspec(dllexport) int __cdecl add_numbers(int a, int b) {
+    return a + b;
+}
+
+/* rundll32-style entry: rundll32.exe mydll.dll,RunMe */
+__declspec(dllexport) void CALLBACK RunMe(HWND hwnd, HINSTANCE hinst, LPSTR cmdline, int show) {
+    (void)hwnd; (void)hinst; (void)show;
+    MessageBoxA(NULL, cmdline, "RunMe called", MB_OK);
+}
+
+/* Called by the loader: keep it tiny (the loader lock is held!) */
+BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
+    (void)reserved;
+    switch (reason) {
+    case DLL_PROCESS_ATTACH:            /* 1: DLL just loaded into a process */
+        DisableThreadLibraryCalls(hinst);
+        break;
+    case DLL_PROCESS_DETACH:            /* 0: being unloaded */
+        break;
+    case DLL_THREAD_ATTACH:             /* 2 */
+    case DLL_THREAD_DETACH:             /* 3 */
+        break;
+    }
+    return TRUE;                        /* FALSE on attach = load fails */
+}
+        </c-example>
+        <plain-block file="terminal (MSYS2 / MinGW)">
+gcc -shared -O2 mydll.c -o mydll.dll -Wl,--out-implib,libmydll.a   # DLL + import lib
+objdump -p mydll.dll | grep -A6 "Export"      # see the export table
+rundll32.exe mydll.dll,RunMe hello            # call an export from the command line
+        </plain-block>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>تحليل DLL مشبوهة</strong><p><b>(1)</b> ابدأ من <code>DllMain</code>: لو <code>reason == 1</code> وبعدها <code>CreateThread</code>، الـ payload بيشتغل بمجرد التحميل (الـ thread عشان يهرب من الـ loader lock). <b>(2)</b> بص على الـ exports: <code>DllRegisterServer</code> = بيتشغّل بـ <code>regsvr32</code>، وexport بأسماء غريبة أو بـ ordinal بس = غالبًا entry بيتنادى بـ <code>rundll32</code>. <b>(3)</b> لو الـ exports بتاعتها نفس أسماء DLL نظام (مثلًا <code>version.dll</code>) وكلها <b>forwarded</b> للأصلية (مثلًا <code>GetFileVersionInfoW</code> بيشاور على <code>C:\Windows\System32\<wbr>version.<wbr>GetFileVersionInfoW</code>) ما عدا واحدة أو اتنين، ده <b>DLL proxy</b> للـ sideloading. <b>(4)</b> في x64dbg: <i>Options → Preferences → Events → DLL Entry</i> عشان يوقف على <code>DllMain</code>.</p></div></div>
+
+        <h3 class="sub">الـ Loader بيدور على المكتبة فين؟ <span class="tag">search order</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>#</th><th>Windows (SafeDllSearchMode)</th><th>Linux (ld.so)</th></tr></thead>
+            <tbody>
+              <tr><td>0</td><td>DLL متحملة already + <b>KnownDLLs</b> (من الـ registry، مبيتدورش عليها)</td><td><code>LD_PRELOAD</code> و<code>/etc/ld.so.preload</code> (قبل أي حاجة)</td></tr>
+              <tr><td>1</td><td><b>فولدر الـ application نفسه</b> ⚠</td><td><code>DT_RPATH</code> جوه الـ binary</td></tr>
+              <tr><td>2</td><td><code>C:\Windows\System32</code></td><td><code>LD_LIBRARY_PATH</code></td></tr>
+              <tr><td>3</td><td><code>C:\Windows\System</code> ثم <code>C:\Windows</code></td><td><code>DT_RUNPATH</code></td></tr>
+              <tr><td>4</td><td>الـ current directory</td><td><code>/etc/ld.so.cache</code></td></tr>
+              <tr><td>5</td><td>فولدرات الـ <code>PATH</code></td><td><code>/lib</code>، <code>/usr/lib</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout danger"><span class="ci">🎯</span><div><strong>DLL Sideloading (MITRE T1574.002)</strong><p>لأن فولدر الـ application بيتدور فيه <b>الأول</b>، المهاجم بياخد برنامج شرعي <b>موقّع</b> (signed) بيحمّل DLL مش في KnownDLLs، ويحط جنبه DLL خبيثة بنفس الاسم. البرنامج الموثوق بيحمّلها ويشغّل كودها، والـ EDR شايف process موقّع. ده من أكتر التقنيات استخدامًا في هجمات الـ APT. علامته: exe موقّع في فولدر غريب (<code>%TEMP%</code>، <code>%APPDATA%</code>) وجنبه DLL مش موقعة. وفي Procmon: فلتر <code>NAME NOT FOUND</code> على <code>.dll</code> بيوريك كل الأماكن اللي البرنامج دوّر فيها.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 21</h3></div>
+
+          <quiz id="s21-q1" answer="3">
+            <q>ELF لـ MIPS: <code>file</code> بيقول <i>statically linked, stripped</i>، وفيه 1400 function ومفيش ولا import. أول خطوة منطقية؟</q>
+            <o>تحلل الـ 1400 function واحدة واحدة</o>
+            <o>تدوّر على الـ Import Table</o>
+            <o>تستنتج إن الملف بايظ</o>
+            <o>تطبّق signatures (FLIRT / Function ID) لـ libc الـ static (musl/uClibc) عشان تفرز كود المكتبة وتركّز على كود الـ malware</o>
+            <good>أغلب الـ functions دي libc. لما تتسمّى، الكود الحقيقي (scanner، attacks، C2) بيبان.</good>
+            <bad>static = المكتبة <b>جوه</b> الملف. يبقى إيه نسبة الكود اللي مش بتاع الـ malware؟</bad>
+          </quiz>
+
+          <quiz id="s21-q2" answer="0">
+            <q>DLL الـ <code>DllMain</code> بتاعها: <code>cmp edx, 1</code> ← <code>jne done</code> ← <code>CreateThread(…, sub_180001200, …)</code>. ده معناه؟</q>
+            <o>أول ما الـ DLL تتحمل (<code>DLL_PROCESS_ATTACH</code>) بتشغّل الـ payload في thread منفصل، فـ <code>sub_180001200</code> هو اللي لازم تحلله</o>
+            <o>الـ DLL بتتقفل</o>
+            <o>ده كود طبيعي ملوش لازمة</o>
+            <o>الـ DLL بتستنى الـ user</o>
+            <good><code>edx</code> = الـ argument التاني = <code>fdwReason</code>. <code>1</code> = attach. والـ thread بيبعد الكود التقيل عن الـ loader lock.</good>
+            <bad><code>DllMain(hinst, reason, reserved)</code>: <code>rcx, rdx, r8</code>. إيه قيمة <code>DLL_PROCESS_ATTACH</code>؟</bad>
+          </quiz>
+
+          <quiz id="s21-q3" answer="2">
+            <q>ملف <code>version.dll</code> موجود في <code>%APPDATA%\Updater\</code> جنب exe موقّع، وأغلب الـ exports بتاعته forwarded لـ <code>C:\Windows\System32\version.*</code>. ده إيه؟</q>
+            <o>تحديث رسمي من Microsoft</o>
+            <o>DLL تالفة</o>
+            <o>DLL proxy للـ sideloading: البرنامج الموقّع هيحمّلها بدل الأصلية، وهي بتمرر الـ calls للأصلية عشان البرنامج يفضل شغال</o>
+            <o>Static library</o>
+            <good>الـ forwarding بيخلي البرنامج يشتغل طبيعي، والـ <code>DllMain</code> (أو export واحد مش forwarded) فيه الـ payload.</good>
+            <bad>ليه DLL نظام تبقى في <code>%APPDATA%</code>؟ وليه هتعمل forward للنسخة الأصلية؟</bad>
+          </quiz>
+
+          <quiz id="s21-q4" answer="1">
+            <q>على سيرفر Linux، <code>ls</code> مش بيظهر ملف موجود، بس <code>busybox ls</code> (static) بيظهره. والملف <code>/etc/ld.so.preload</code> فيه سطر واحد. الاستنتاج؟</q>
+            <o>الـ filesystem بايظ</o>
+            <o>Userland rootkit متحمّل بـ <code>/etc/ld.so.preload</code> وبيعمل hook لـ <code>readdir</code> في كل البرامج الـ dynamic</o>
+            <o>busybox فيها bug</o>
+            <o>Kernel rootkit أكيد</o>
+            <good>الـ binary الـ static مبيمرش على ld.so، فالـ hook مبيأثرش عليه. ده تكنيك تشخيص كلاسيكي.</good>
+            <bad>إيه الفرق بين <code>ls</code> و<code>busybox ls</code> من ناحية الـ dynamic loader؟</bad>
+          </quiz>
+
+          <quiz id="s21-q5" answer="3">
+            <q>ليه الـ shared library لازم تتعمل compile بـ <code>-fPIC</code>؟</q>
+            <o>عشان تبقى أسرع</o>
+            <o>عشان تبقى أصغر</o>
+            <o>عشان تخبي الـ symbols</o>
+            <o>لأنها بتتحمل في عنوان مختلف كل مرة، فالكود لازم يشتغل من أي عنوان (عناوين نسبية لـ <code>rip</code> + GOT)</o>
+            <good>Position-Independent Code. ونفس الفكرة لازمة لأي shellcode.</good>
+            <bad>هل الـ <code>.so</code> بتتحمل دايمًا في نفس العنوان مع ASLR؟</bad>
+          </quiz>
+
+          <challenge id="s21-c1" title="Resolver بـ dlsym" posix>
+            <desc>حمّل <code>libm.so.6</code> بـ <code>dlopen</code>، وامشي على جدول <code>{ name, argument }</code> ده: <code>{"sqrt", 16.0}</code>، <code>{"cbrt", 27.0}</code>، <code>{"fabs", -2.5}</code>، <code>{"VirtualAlloc", 1.0}</code>. لكل واحد: <code>dlsym</code>، ولو موجود ناديه واطبع النتيجة بـ 3 أرقام عشرية، ولو مش موجود اطبع not found:<br><code>sqrt(16.000) = 4.000</code><br><code>cbrt(27.000) = 3.000</code><br><code>fabs(-2.500) = 2.500</code><br><code>VirtualAlloc: not found</code></desc>
+            <starter>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <dlfcn.h>
+
+typedef double (*math_fn)(double);
+
+static const struct { const char *name; double arg; } calls[] = {
+    { "sqrt", 16.0 }, { "cbrt", 27.0 }, { "fabs", -2.5 }, { "VirtualAlloc", 1.0 },
+};
+
+int main(void) {
+    // TODO: dlopen("libm.so.6", RTLD_NOW), resolve each name, call or report
+    (void)calls;
+    return 0;
+}
+            </starter>
+            <expected>
+sqrt(16.000) = 4.000
+cbrt(27.000) = 3.000
+fabs(-2.500) = 2.500
+VirtualAlloc: not found
+            </expected>
+            <solution>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <dlfcn.h>
+
+typedef double (*math_fn)(double);
+
+static const struct { const char *name; double arg; } calls[] = {
+    { "sqrt", 16.0 }, { "cbrt", 27.0 }, { "fabs", -2.5 }, { "VirtualAlloc", 1.0 },
+};
+
+int main(void) {
+    void *lib = dlopen("libm.so.6", RTLD_NOW);
+    if (lib == NULL) { printf("dlopen failed: %s\n", dlerror()); return 1; }
+    for (size_t i = 0; i < sizeof calls / sizeof calls[0]; i++) {
+        math_fn f = (math_fn)dlsym(lib, calls[i].name);
+        if (f == NULL) {
+            printf("%s: not found\n", calls[i].name);
+            continue;
+        }
+        printf("%s(%.3f) = %.3f\n", calls[i].name, calls[i].arg, f(calls[i].arg));
+    }
+    dlclose(lib);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s21-c2" title="ترتيب الـ constructors" >
+            <desc>اكتب اتنين constructors بأولويات (<code>__attribute__((constructor(101)))</code> و<code>(102)</code>، الرقم الأصغر بيتنفذ الأول) وdestructor واحد، عشان البرنامج يطبع بالظبط (الـ <code>main</code> بيطبع السطر التالت بس):<br><code>init: decrypt strings</code><br><code>init: check environment</code><br><code>main: payload</code><br><code>fini: wipe memory</code></desc>
+            <starter>
+#include <stdio.h>
+
+// TODO: two constructors (priorities 101 and 102) and one destructor
+
+int main(void) {
+    puts("main: payload");
+    return 0;
+}
+            </starter>
+            <expected>
+init: decrypt strings
+init: check environment
+main: payload
+fini: wipe memory
+            </expected>
+            <solution>
+#include <stdio.h>
+
+__attribute__((constructor(101))) static void first(void)  { puts("init: decrypt strings"); }
+__attribute__((constructor(102))) static void second(void) { puts("init: check environment"); }
+__attribute__((destructor))       static void wipe(void)   { puts("fini: wipe memory"); }
+
+int main(void) {
+    puts("main: payload");
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s21-c3" title="امشي على Export Table بنفسك" level="3">
+            <desc>ده تمثيل لـ <b>Export Directory</b> بتاع DLL (زي اللي الـ malware بيمشي عليه عشان يحل الـ APIs من غير <code>GetProcAddress</code>). <code>names[]</code> مترتبة أبجديًا، و<code>name_ordinals[i]</code> = index الدالة في <code>functions[]</code> للاسم <code>names[i]</code>، والـ ordinal الحقيقي = <code>index + BASE</code>. اكتب <code>lookup_name</code> و<code>lookup_ordinal</code> واطبع:<br><code>ReadFile -> ordinal 9, RVA 0x1400</code><br><code>CreateFileW -> ordinal 5, RVA 0x1000</code><br><code>VirtualAlloc -> not exported</code><br><code>ordinal 7 -> RVA 0x1200 (no name)</code><br><code>ordinal 12 -> invalid ordinal</code><br>(لو الـ ordinal ليه اسم اطبع الاسم بين أقواس بدل <code>no name</code>.)</desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define BASE 5
+static const uint32_t functions[]     = { 0x1000, 0x1100, 0x1200, 0x1300, 0x1400 };
+static const char    *names[]         = { "CloseHandle", "CreateFileW", "ReadFile", "WriteFile" };
+static const uint16_t name_ordinals[] = { 3, 0, 4, 1 };
+#define N_FUNCS 5
+#define N_NAMES 4
+
+static void lookup_name(const char *name) {
+    // TODO: find name in names[], then functions[name_ordinals[i]]
+    (void)name;
+}
+
+static void lookup_ordinal(unsigned ordinal) {
+    // TODO: index = ordinal - BASE (check range!), find a name that maps to it
+    (void)ordinal;
+}
+
+int main(void) {
+    lookup_name("ReadFile");
+    lookup_name("CreateFileW");
+    lookup_name("VirtualAlloc");
+    lookup_ordinal(7);
+    lookup_ordinal(12);
+    (void)functions; (void)names; (void)name_ordinals;
+    return 0;
+}
+            </starter>
+            <expected>
+ReadFile -> ordinal 9, RVA 0x1400
+CreateFileW -> ordinal 5, RVA 0x1000
+VirtualAlloc -> not exported
+ordinal 7 -> RVA 0x1200 (no name)
+ordinal 12 -> invalid ordinal
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define BASE 5
+static const uint32_t functions[]     = { 0x1000, 0x1100, 0x1200, 0x1300, 0x1400 };
+static const char    *names[]         = { "CloseHandle", "CreateFileW", "ReadFile", "WriteFile" };
+static const uint16_t name_ordinals[] = { 3, 0, 4, 1 };
+#define N_FUNCS 5
+#define N_NAMES 4
+
+static void lookup_name(const char *name) {
+    for (int i = 0; i < N_NAMES; i++) {
+        if (strcmp(names[i], name) == 0) {
+            unsigned idx = name_ordinals[i];
+            printf("%s -> ordinal %u, RVA 0x%X\n", name, idx + BASE, functions[idx]);
+            return;
+        }
+    }
+    printf("%s -> not exported\n", name);
+}
+
+static void lookup_ordinal(unsigned ordinal) {
+    if (ordinal < BASE || ordinal - BASE >= N_FUNCS) {
+        printf("ordinal %u -> invalid ordinal\n", ordinal);
+        return;
+    }
+    unsigned idx = ordinal - BASE;
+    const char *name = NULL;
+    for (int i = 0; i < N_NAMES; i++)
+        if (name_ordinals[i] == idx) name = names[i];
+    printf("ordinal %u -> RVA 0x%X (%s)\n", ordinal, functions[idx], name ? name : "no name");
+}
+
+int main(void) {
+    lookup_name("ReadFile");
+    lookup_name("CreateFileW");
+    lookup_name("VirtualAlloc");
+    lookup_ordinal(7);
+    lookup_ordinal(12);
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

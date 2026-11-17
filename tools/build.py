@@ -5,9 +5,15 @@ C Mastery — build + verification pipeline.
 Expands the short authoring tags in src/sections/*.html into the final
 index.html and *verifies every piece of code* before it can ship:
 
-  <c-example file="x.c" [opt="-O2"] [norun] [allow-warn] [expect-error] [win]>
+  <c-example file="x.c" [opt="-O2"] [norun] [allow-warn] [expect-error] [win] [posix] [std="c23"]>
       C code (raw text, no HTML escaping needed)
   </c-example>
+
+  <cpp-example file="x.cpp" [opt] [norun] [win]>C++ code (g++, -std=c++20)</cpp-example>
+
+  `posix` = needs Linux headers (fork, sockets, dlopen…): the local MinGW gcc
+  cannot compile it, so it is verified on Compiler Explorer only, and any
+  compiler warning there fails the build. `std` pins the C standard.
 
   <asm-block file="x.s" [title="..."]>raw assembly</asm-block>
   <plain-block file="terminal" [lang="bash"]>raw text</plain-block>
@@ -113,21 +119,38 @@ def save_cache() -> None:
 
 # --------------------------------------------------------------------------- gcc (local)
 GCC = shutil.which("gcc")
+GXX = shutil.which("g++")
+TOOLCHAINS = {   # Compiler Explorer ids — must match TOOLCHAINS in assets/app.js
+    "c":   {"id": "cg152", "lang": "c",   "std": "c17",   "libs": " -lm"},
+    "cpp": {"id": "g152",  "lang": "c++", "std": "c++20", "libs": ""},
+}
 
 
-def local_compile(code: str, label: str, allow_warn: bool, expect_error: bool, win: bool) -> None:
-    if not GCC:
-        errors.append("gcc not found on PATH — cannot verify " + label)
+def ce_flags(lang: str, std: str | None) -> str:
+    if lang == "c" and not std:
+        return BASE_FLAGS               # unchanged → existing cache keys stay valid
+    tc = TOOLCHAINS[lang]
+    return f"-std={std or tc['std']} -Wall -Wextra -fdiagnostics-color=never{tc['libs']}"
+
+
+def local_compile(code: str, label: str, allow_warn: bool, expect_error: bool, win: bool,
+                  std: str | None = None, lang: str = "c", posix: bool = False) -> None:
+    if posix:
+        return                          # Linux-only headers: verified on Compiler Explorer instead
+    compiler = GXX if lang == "cpp" else GCC
+    if not compiler:
+        errors.append(("g++" if lang == "cpp" else "gcc") + " not found on PATH — cannot verify " + label)
         return
     # Feed the source on stdin and write the object to an ASCII temp dir:
     # MinGW gcc cannot open paths containing non-ASCII characters.
     obj = os.path.join(tempfile.gettempdir(), "c-mastery-check.o")
-    flags = ["-std=c17", "-Wall", "-Wextra", "-fdiagnostics-color=never", "-x", "c", "-c", "-o", obj]
+    flags = ["-std=" + (std or TOOLCHAINS[lang]["std"]), "-Wall", "-Wextra", "-fdiagnostics-color=never",
+             "-x", "c++" if lang == "cpp" else "c", "-c", "-o", obj]
     if not allow_warn and not expect_error:
         flags.insert(0, "-Werror")
     if not win:
         flags.append("-D__USE_MINGW_ANSI_STDIO=1")
-    proc = subprocess.run([GCC, *flags, "-"], input=code + "\n", capture_output=True, text=True, encoding="utf-8")
+    proc = subprocess.run([compiler, *flags, "-"], input=code + "\n", capture_output=True, text=True, encoding="utf-8")
     if expect_error:
         if proc.returncode == 0:
             errors.append(f"{label}: marked expect-error but compiled cleanly")
@@ -138,17 +161,20 @@ def local_compile(code: str, label: str, allow_warn: bool, expect_error: bool, w
 
 
 # --------------------------------------------------------------------------- Compiler Explorer
-def ce_run(code: str, opt: str = "-O0", stdin: str = "") -> dict:
-    key = hashlib.sha256(json.dumps([code, opt, stdin, BASE_FLAGS]).encode()).hexdigest()
+def ce_run(code: str, opt: str = "-O0", stdin: str = "", std: str | None = None, lang: str = "c") -> dict:
+    flags = ce_flags(lang, std)
+    key_parts = [code, opt, stdin, flags] if lang == "c" else [code, opt, stdin, flags, lang]
+    key = hashlib.sha256(json.dumps(key_parts).encode()).hexdigest()
     USED_KEYS.add(key)
     if key in CACHE:
         return CACHE[key]
     if OFFLINE:
         return {"offline": True}
+    tc = TOOLCHAINS[lang]
     body = {
-        "source": code, "lang": "c", "allowStoreCodeDebug": False,
+        "source": code, "lang": tc["lang"], "allowStoreCodeDebug": False,
         "options": {
-            "userArguments": opt + " " + BASE_FLAGS,
+            "userArguments": opt + " " + flags,
             "executeParameters": {"args": [], "stdin": stdin},
             "compilerOptions": {"executorRequest": True},
             "filters": {"execute": True}, "tools": [], "libraries": [],
@@ -157,7 +183,8 @@ def ce_run(code: str, opt: str = "-O0", stdin: str = "") -> dict:
     last_exc = None
     for attempt in range(4):
         try:
-            req = urllib.request.Request(CE_URL, data=json.dumps(body).encode(),
+            req = urllib.request.Request(f"https://godbolt.org/api/compiler/{tc['id']}/compile",
+                                         data=json.dumps(body).encode(),
                                          headers={"Content-Type": "application/json", "Accept": "application/json",
                                                   "User-Agent": "c-mastery-course-build/1.0"})
             data = json.load(urllib.request.urlopen(req, timeout=60))
@@ -185,10 +212,10 @@ def ce_run(code: str, opt: str = "-O0", stdin: str = "") -> dict:
 
 # --------------------------------------------------------------------------- renderers
 def render_code_block(code: str, filename: str, lang: str, runnable: bool, baked: str | None,
-                      opt: str | None, extra_cls: str = "") -> str:
+                      opt: str | None, extra_cls: str = "", extra_data: str = "") -> str:
     data = ""
     if runnable:
-        data = " data-run"
+        data = " data-run" + extra_data
         if opt:
             data += f' data-opt="{esc_attr(opt)}"'
     tools = '<button class="copy" type="button">نسخ</button>'
@@ -209,27 +236,41 @@ def render_code_block(code: str, filename: str, lang: str, runnable: bool, baked
     return "".join(parts)
 
 
-def expand_c_example(m: re.Match, where: str) -> str:
+def expand_c_example(m: re.Match, where: str, lang: str = "c") -> str:
     a = attrs(m.group(1))
     code = dedent_block(m.group(2))
-    filename = a.get("file", "main.c")
+    filename = a.get("file", "main.cpp" if lang == "cpp" else "main.c")
     label = f"{where} › {filename}"
     stats["examples"] += 1
     norun = "norun" in a
     win = "win" in a
+    posix = "posix" in a
     allow_warn = "allow-warn" in a
     expect_error = "expect-error" in a
+    std = a.get("std") or None
     opt = a.get("opt")
     has_main = re.search(r"\bint\s+main\s*\(", code) is not None
+    strict = (posix or lang == "cpp" or std) and not allow_warn and not expect_error
 
-    local_compile(code, label, allow_warn, expect_error, win)
+    local_compile(code, label, allow_warn, expect_error, win, std, lang, posix)
 
     runnable = not norun and not win and (has_main or expect_error)
+    extra_data = (' data-lang="cpp"' if lang == "cpp" else "") + (f' data-std="{esc_attr(std)}"' if std else "")
+    if posix and not runnable and not win:
+        # Not executed, but still make sure it compiles on Linux.
+        try:
+            r = ce_run(code, opt or "-O0", "", std, lang) if has_main else None
+            if r and not r.get("offline") and (not r["didExecute"] or (strict and "warning:" in r["build"])):
+                errors.append(f"{label}: Linux compile problem on Compiler Explorer:\n{r['build']}")
+        except RuntimeError as exc:
+            errors.append(f"{label}: {exc}")
     baked = None
     if runnable:
         stats["runnable"] += 1
         try:
-            r = ce_run(code, opt or "-O0")
+            r = ce_run(code, opt or "-O0", "", std, lang)
+            if strict and not r.get("offline") and "warning:" in r.get("build", ""):
+                errors.append(f"{label}: compiler warning on Compiler Explorer:\n{r['build']}")
         except RuntimeError as exc:
             errors.append(f"{label}: {exc}")
             r = {"offline": True}
@@ -253,7 +294,7 @@ def expand_c_example(m: re.Match, where: str) -> str:
                 errors.append(f"{label}: non-zero exit code {r['code']} (add any-exit if intended)\n{r['stdout'][:300]}{r['stderr'][:300]}")
             if "expect" in a and normalize(r["stdout"]) != normalize(a["expect"].replace("\\n", "\n")):
                 errors.append(f"{label}: output mismatch.\n got: {r['stdout']!r}\n exp: {a['expect']!r}")
-    return render_code_block(code, filename, "c", runnable, baked, opt)
+    return render_code_block(code, filename, "c", runnable, baked, opt, extra_data=extra_data)
 
 
 def expand_asm(m: re.Match) -> str:
@@ -342,12 +383,21 @@ def expand_challenge(m: re.Match, where: str) -> str:
     solution = dedent_block(part("solution") or "")
     stdin_raw = part("stdin", required=False)
     stdin = dedent_block(stdin_raw) + "\n" if stdin_raw is not None else ""
+    posix = "posix" in a
+    std = a.get("std") or None
+    lang = "cpp" if a.get("lang") == "cpp" else "c"
 
-    local_compile(solution, label + " (solution)", False, False, False)
-    local_compile(starter, label + " (starter)", True, False, False)
+    local_compile(solution, label + " (solution)", False, False, False, std, lang, posix)
+    local_compile(starter, label + " (starter)", True, False, False, std, lang, posix)
     try:
-        r = ce_run(solution, "-O0", stdin)
+        r = ce_run(solution, "-O0", stdin, std, lang)
+        if posix:   # the starter is only checked remotely for Linux-only code
+            rs = ce_run(starter, "-O0", stdin, std, lang)
+            if not rs.get("offline") and not rs["didExecute"] and "error" in rs["build"]:
+                errors.append(f"{label}: starter does not compile on Compiler Explorer:\n{rs['build']}")
         if not r.get("offline"):
+            if (posix or std or lang == "cpp") and "warning:" in r["build"]:
+                errors.append(f"{label}: solution has compiler warnings:\n{r['build']}")
             if not r["didExecute"]:
                 errors.append(f"{label}: solution failed on Compiler Explorer:\n{r['build']}")
             elif normalize(r["stdout"]) != normalize(expected):
@@ -359,16 +409,17 @@ def expand_challenge(m: re.Match, where: str) -> str:
     lvl_txt = {"1": "أساسي", "2": "متوسط", "3": "متقدم"}.get(level, "أساسي")
     title = a.get("title", "تحدي")
     out = [
-        f'<div class="challenge" data-ex="{esc_attr(cid)}">',
-        f'<div class="ch-head"><span class="badge-code">C</span><h4>{title}<span class="lvl l{esc_attr(level)}">{lvl_txt}</span></h4></div>',
+        f'<div class="challenge" data-ex="{esc_attr(cid)}"' + (f' data-std="{esc_attr(std)}"' if std else "")
+        + (' data-lang="cpp"' if lang == "cpp" else "") + '>',
+        f'<div class="ch-head"><span class="badge-code">{"C++" if lang == "cpp" else "C"}</span><h4>{title}<span class="lvl l{esc_attr(level)}">{lvl_txt}</span></h4></div>',
         f'<div class="ch-desc">{desc}</div>',
-        '<div class="editor"><div class="editor-bar"><span class="ed-dot"></span>main.c<span class="ed-keys">Ctrl + Enter للتشغيل</span></div>',
+        f'<div class="editor"><div class="editor-bar"><span class="ed-dot"></span>{"main.cpp" if lang == "cpp" else "main.c"}<span class="ed-keys">Ctrl + Enter للتشغيل</span></div>',
         f'<textarea spellcheck="false" aria-label="محرر كود التحدي">{esc(starter)}\n</textarea></div>',
         '<div class="ch-actions"><button class="btn btn-sm btn-run" type="button">▶ تشغيل وتصحيح</button>',
         '<button class="btn btn-sm btn-ghost btn-asm" type="button">⚙ ASM</button>',
         '<button class="btn btn-sm btn-ghost btn-solution" type="button">اعرض الحل</button>',
         '<button class="btn btn-sm btn-ghost btn-reset" type="button">استعادة</button><span class="ch-status"></span></div>',
-        '<div class="console" hidden><div class="console-head"><span>Output · gcc 15.2 x86-64 Linux -O0</span></div><pre></pre></div>',
+        f'<div class="console" hidden><div class="console-head"><span>Output · {"g++" if lang == "cpp" else "gcc"} 15.2 x86-64 Linux -O0</span></div><pre></pre></div>',
         f'<div class="expected" hidden>{esc(expected)}</div>',
         f'<div class="solution" hidden>{esc(solution)}</div>',
     ]
@@ -381,6 +432,7 @@ def expand_challenge(m: re.Match, where: str) -> str:
 # --------------------------------------------------------------------------- main
 def process_section(text: str, where: str) -> str:
     text = re.sub(r"<c-example([^>]*)>([\s\S]*?)</c-example>", lambda m: expand_c_example(m, where), text)
+    text = re.sub(r"<cpp-example([^>]*)>([\s\S]*?)</cpp-example>", lambda m: expand_c_example(m, where, "cpp"), text)
     text = re.sub(r"<asm-block([^>]*)>([\s\S]*?)</asm-block>", expand_asm, text)
     text = re.sub(r"<plain-block([^>]*)>([\s\S]*?)</plain-block>", expand_plain, text)
     text = re.sub(r"<quiz([^>]*)>([\s\S]*?)</quiz>", lambda m: expand_quiz(m.group(1), m.group(2), where), text)
@@ -412,7 +464,7 @@ def main() -> int:
     for href in set(re.findall(r'href="#([^"]+)"', template + body)):
         if href not in ids:
             errors.append(f"broken in-page link: #{href}")
-    leftovers = re.findall(r"</?(?:c-example|asm-block|plain-block|quiz|challenge|pre-c|pre-asm)\b", body)
+    leftovers = re.findall(r"</?(?:c-example|cpp-example|asm-block|plain-block|quiz|challenge|pre-c|pre-asm)\b", body)
     if leftovers:
         errors.append(f"unexpanded authoring tags: {set(leftovers)}")
 

@@ -253,8 +253,68 @@ int main(int argc, char *argv[]) {
         </c-example>
         <p>شغّل المثال: هيرجع <code>1</code> لأن مفيش arguments. <code>argv[0]</code> = مسار البرنامج، و<code>argv[argc]</code> = <code>NULL</code> دايمًا. والـ malware كتير بيتحكم في سلوكه بالـ arguments (مثلًا <code>-install</code> أو <code>-svc</code>) — فلو الـ sample مبيعملش حاجة في الـ sandbox، شوف هل بيدور على argument معين في <code>main</code>.</p>
 
+        <h3 class="sub">inline و restrict و _Noreturn <span class="tag">function specifiers</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الكلمة</th><th>معناها</th><th>أثرها في الـ binary</th></tr></thead>
+            <tbody>
+              <tr><td><code>static inline</code></td><td>اقتراح للـ compiler: انسخ جسم الدالة مكان النداء</td><td>الدالة ممكن <b>تختفي</b> تمامًا ويبقى كودها متكرر جوه كل اللي بينادوها. عشان كده في <code>-O2</code> هتلاقي دوال أقل وأطول</td></tr>
+              <tr><td><code>restrict</code> (على pointer)</td><td>وعد منك: "مفيش pointer تاني بيشاور على نفس الذاكرة"</td><td>الـ compiler يقدر يعمل vectorization (instructions <code>movdqu</code>/<code>pxor</code> بتعالج 16 byte مرة واحدة). <code>memcpy</code> نفسها متعرّفة بـ <code>restrict</code></td></tr>
+              <tr><td><code>_Noreturn</code> (C23: <code>[[noreturn]]</code>)</td><td>الدالة دي مش بترجع أبدًا (<code>exit</code>، <code>abort</code>)</td><td>الـ compiler مش بيحط أي كود بعد الـ <code>call</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ disassembler اتلخبط بعد <code>call</code></strong><p>لأن مفيش كود بعد نداء دالة <code>noreturn</code>، الـ bytes اللي بعد <code>call abort</code> أو <code>call __stack_chk_fail</code> غالبًا بداية <b>دالة تانية</b>. لو Ghidra/IDA مش عارف إن الدالة دي noreturn، هيكمّل يحلل وهيدمج دالتين في بعض ويطلع decompilation غلط. الحل: علّم الدالة <i>No Return</i> (في Ghidra: Edit Function → No Return) وأعد التحليل. ده بيحصل كتير مع دوال الـ malware الخاصة اللي بتعمل <code>ExitProcess</code>.</p></div></div>
+
+        <h3 class="sub">setjmp و longjmp: قفزة بين الدوال <span class="tag">setjmp.h</span></h3>
+        <p><code>setjmp(buf)</code> بتحفظ "مكانك الحالي" (الـ registers المهمة: <code>rsp</code> و<code>rip</code> والـ callee-saved) وترجع <code>0</code>. وبعدين أي دالة، حتى لو أعمق بكذا مستوى، تقدر تنادي <code>longjmp(buf, n)</code>، فالتنفيذ يرجع <b>فجأة</b> لمكان الـ <code>setjmp</code> كأنها رجعت تاني بالقيمة <code>n</code>. دي طريقة C القديمة لعمل حاجة شبه الـ exceptions.</p>
+        <c-example file="setjmp.c">
+#include <stdio.h>
+#include <setjmp.h>
+
+static jmp_buf on_error;                 /* saved rsp, rip, rbx, rbp, r12-r15 */
+
+static void parse_field(int value) {
+    if (value < 0)
+        longjmp(on_error, 2);            /* jump back to setjmp, which "returns" 2 */
+    printf("  field %d ok\n", value);
+}
+
+static void parse_record(const int *fields, int n) {
+    for (int i = 0; i < n; i++)
+        parse_field(fields[i]);          /* we are 2 frames deep here */
+}
+
+int main(void) {
+    static const int good[] = { 1, 2, 3 }, bad[] = { 4, -1, 5 };
+    const int *records[] = { good, bad };
+    for (int r = 0; r < 2; r++) {
+        int code = setjmp(on_error);     /* 0 the first time, 2 after longjmp */
+        if (code == 0) {
+            printf("record %d:\n", r);
+            parse_record(records[r], 3);
+            printf("record %d parsed\n", r);
+        } else {
+            printf("record %d rejected (error %d)\n", r, code);
+        }
+    }
+    return 0;
+}
+        </c-example>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>قواعد setjmp</strong><p>(1) أي متغير محلي اتغير <b>بعد</b> <code>setjmp</code> وقبل <code>longjmp</code> قيمته مش مضمونة بعد الرجوع، إلا لو <code>volatile</code>. (2) متعملش <code>longjmp</code> لـ <code>setjmp</code> دالتها رجعت خلاص (الـ stack frame مات). (3) أي <code>malloc</code> أو ملف اتفتح في النص مش هيتقفل لوحده. في الـ binaries: glibc بتعمل "mangling" للـ <code>rsp</code>/<code>rip</code> المحفوظين (XOR مع قيمة سرية من <code>fs:0x30</code> ثم <code>rol</code>) عشان المهاجم ميقدرش يزوّر الـ <code>jmp_buf</code>.</p></div></div>
+
         <div class="exercises">
           <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 05</h3></div>
+
+          <quiz id="s05-q7" answer="3">
+            <q>في Ghidra، دالة بتنتهي بـ <code>call sub_401890</code> (اللي جواها <code>ExitProcess</code>)، والـ decompiler بيكمّل بعدها ويدمج كود غريب ملوش علاقة. السبب الأرجح؟</q>
+            <o>الكود ده dead code متعمد</o>
+            <o>الـ binary معمول له pack</o>
+            <o><code>sub_401890</code> فيها bug</o>
+            <o><code>sub_401890</code> مبترجعش (noreturn)، فالـ bytes اللي بعد الـ call دالة تانية، والـ disassembler مش عارف. علّمها No Return وأعد التحليل</o>
+            <good>الـ compiler مبيحطش كود بعد نداء دالة noreturn، فاللي بعدها بداية دالة جديدة.</good>
+            <bad>هل <code>ExitProcess</code> بترجع للي ناداها؟</bad>
+          </quiz>
 
           <quiz id="s05-q1" answer="2">
             <q>هيطبع إيه؟<pre-c>

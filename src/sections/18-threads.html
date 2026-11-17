@@ -1,0 +1,612 @@
+      <section class="section" id="s18" data-part="الجزء 4 · C على مستوى النظام" data-nav="الـ Threads والتزامن" data-icon="🧵" data-keywords="threads pthread pthread_create pthread_join mutex lock race condition atomic stdatomic lock xadd lock add condition variable pthread_cond_wait thread local storage _Thread_local tls fs gs teb peb c11 threads.h thrd_create createthread waitforsingleobject critical section interlockedincrement deadlock toctou volatile concurrency">
+        <div class="section-head">
+          <span class="section-index">18</span>
+          <div>
+            <p class="eyebrow">المرحلة الثامنة عشر · الجزء الرابع: C على مستوى النظام</p>
+            <h2>الـ Threads والتزامن: أكتر من حاجة شغالة في نفس الوقت</h2>
+            <p class="lede">أغلب الـ malware الحقيقي مش برنامج "خط واحد": فيه <b>thread</b> بيكلم الـ C2، وthread بيسجل الكيبورد، وthread بيراقب لو فيه debugger، والـ ransomware بيشغّل عشرات الـ threads عشان يشفّر أسرع. لما تفتح sample وتلاقي <code>CreateThread</code> أو <code>pthread_create</code>، لازم تعرف تلاقي الكود اللي هيتنفذ، وتفهم إزاي الـ threads بتتشارك البيانات من غير ما تبوظها.</p>
+          </div>
+        </div>
+
+        <div class="callout info"><span class="ci">🐧</span><div><strong>قبل ما تبدأ الجزء ده</strong><p>أمثلة الجزء الرابع بتستخدم APIs بتاعة Linux (POSIX): <code>pthread</code>، <code>fork</code>، الـ sockets، <code>dlopen</code>. زرار <b>تشغيل</b> بيشغّلها على Linux عادي. على جهازك استخدم <b>WSL</b> (الـ MinGW على Windows معندوش أغلبها). وهتلاحظ إن كل مثال بيبدأ بـ <code>#define _POSIX_C_SOURCE 200809L</code> قبل أي <code>#include</code>: إحنا بنعمل compile بـ <code>-std=c17</code> الصارم، والسطر ده بيقول لـ glibc "اظهرلي دوال POSIX كمان". ولكل موضوع هتلاقي المقابل في Windows API، لأن ده اللي هتشوفه في أغلب الـ samples.</p></div></div>
+
+        <h3 class="sub">Process vs Thread <span class="tag">concepts</span></h3>
+        <p>الـ <b>process</b> = برنامج شغال ليه مساحة ذاكرة خاصة بيه (virtual address space). الـ <b>thread</b> = خط تنفيذ جوه الـ process. كل process بيبدأ بـ thread واحد (اللي بينفذ <code>main</code>)، ويقدر يعمل threads تانية. الـ threads كلها <b>بتشوف نفس الذاكرة</b>، وده سر قوتها ومصدر كل مشاكلها.</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الحاجة</th><th>مشتركة بين الـ threads؟</th><th>ملاحظة للـ RE</th></tr></thead>
+            <tbody>
+              <tr><td>الكود (<code>.text</code>)، الـ globals (<code>.data</code>/<code>.bss</code>)، الـ heap</td><td>✅ مشتركة</td><td>أي thread يقدر يقرا ويكتب أي global — ومن هنا الـ races</td></tr>
+              <tr><td>الـ handles / file descriptors المفتوحة</td><td>✅ مشتركة</td><td>thread يفتح socket وthread تاني يبعت عليه</td></tr>
+              <tr><td>الـ Stack</td><td>❌ لكل thread stack خاص</td><td>المتغيرات المحلية آمنة طالما محدش بعت عنوانها لـ thread تاني</td></tr>
+              <tr><td>الـ Registers (<code>rip</code>، <code>rsp</code>، …)</td><td>❌ لكل thread نسخته</td><td>في x64dbg كل thread ليه context منفصل (تبويب Threads)</td></tr>
+              <tr><td>الـ Thread-Local Storage (TLS)</td><td>❌ لكل thread</td><td>على Windows الـ TEB، وبيتوصل له عن طريق <code>gs:</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">أول Threads: pthread_create و pthread_join <span class="tag">pthread</span></h3>
+        <p>الـ thread بيبدأ من <b>دالة</b> شكلها لازم يكون <code>void *fn(void *arg)</code>. الـ <code>void *</code> ده هو الطريقة الوحيدة تبعت بيها بيانات للـ thread، فالنمط المعتاد: تعمل <code>struct</code> فيه كل اللي محتاجه، وتبعت عنوانه. و<code>pthread_join</code> بيستنى الـ thread لحد ما يخلص (زي <code>wait</code> للـ processes).</p>
+        <c-example file="threads_basic.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+typedef struct {
+    int id;
+    const int *data;
+    size_t start, end;
+    long sum;                         /* result, written by the thread */
+} Job;
+
+static void *worker(void *arg) {      /* the thread's entry point */
+    Job *job = arg;                   /* void* -> the real type */
+    for (size_t i = job->start; i < job->end; i++)
+        job->sum += job->data[i];
+    return NULL;
+}
+
+int main(void) {
+    int data[1000];
+    for (int i = 0; i < 1000; i++) data[i] = i + 1;
+
+    pthread_t tid[4];
+    Job jobs[4];
+    for (int t = 0; t < 4; t++) {
+        jobs[t] = (Job){ .id = t, .data = data,
+                         .start = (size_t)t * 250, .end = (size_t)(t + 1) * 250 };
+        if (pthread_create(&tid[t], NULL, worker, &jobs[t]) != 0) {
+            fprintf(stderr, "pthread_create failed\n");
+            return 1;
+        }
+    }
+
+    long total = 0;
+    for (int t = 0; t < 4; t++) {
+        pthread_join(tid[t], NULL);   /* wait for thread t to finish */
+        printf("thread %d: sum[%zu..%zu) = %ld\n",
+               jobs[t].id, jobs[t].start, jobs[t].end, jobs[t].sum);
+        total += jobs[t].sum;
+    }
+    printf("total = %ld\n", total);
+    return 0;
+}
+        </c-example>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>ليه كل thread ليه <code>Job</code> خاص بيه؟</strong><p>لو بعتّ عنوان متغير واحد لكل الـ threads وغيّرته في الـ loop، كلهم هيقروا آخر قيمة (أو قيمة في النص). القاعدة: البيانات اللي بتبعتها للـ thread لازم تفضل <b>عايشة ومتغيرتش</b> لحد ما الـ thread يخلص. لاحظ كمان إننا بنطبع بعد الـ <code>join</code> بس، عشان ترتيب المخرجات يبقى ثابت.</p></div></div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>فين الكود اللي الـ thread هيشغّله؟</strong><p>دالة الـ thread <b>مش بتتنادى بـ <code>call</code></b> في أي حتة في البرنامج، فـ Ghidra ممكن ميعرفش إنها كود أصلًا. اللي هتلاقيه: عنوانها بيتحط كـ argument: في <code>pthread_create</code> هو الـ argument التالت (<code>rdx</code>)، وفي <code>CreateThread</code> على Windows هو التالت برضه (<code>r8</code>، اسمه <code>lpStartAddress</code>)، والـ argument الرابع (<code>r9</code>) هو الـ <code>void *</code> اللي بيوصل للدالة. اتبع العنوان ده، سمّي الدالة <code>thread_xxx</code>، وحدد نوع الـ struct اللي بيوصلها. في x64dbg: حط breakpoint على أول الدالة، أو فعّل <i>Break on Thread Start</i>.</p></div></div>
+
+        <h3 class="sub">الـ Race Condition: ليه <code>counter++</code> مش آمن <span class="tag">data race</span></h3>
+        <p>جملة <code>counter++</code> شكلها خطوة واحدة، لكنها في الحقيقة <b>3 خطوات</b>: اقرا، زوّد، اكتب. لو thread اتقطع بين القراية والكتابة، وthread تاني عمل نفس الحاجة، زيادة واحدة هتضيع. الكود ده نتيجته بتتغير كل مرة تشغله (ومعظم الوقت أقل من المتوقع):</p>
+        <div class="side-by-side">
+          <c-example file="race.c" posix norun>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+static int counter;                  /* shared by all threads */
+
+static void *inc(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 1000000; i++)
+        counter++;                   /* read-modify-write: NOT atomic */
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[4];
+    for (int i = 0; i < 4; i++) pthread_create(&t[i], NULL, inc, NULL);
+    for (int i = 0; i < 4; i++) pthread_join(t[i], NULL);
+    printf("counter = %d (expected 4000000)\n", counter);
+    return 0;
+}
+          </c-example>
+          <asm-block file="counter++ vs atomic">
+; counter++   (gcc -O0)
+mov     eax, DWORD PTR counter[rip]   ; 1) read
+add     eax, 1                        ; 2) modify in a register
+mov     DWORD PTR counter[rip], eax   ; 3) write back
+; another thread can run between 1 and 3!
+
+; atomic_fetch_add(&counter, 1)   (gcc -O2)
+lock add DWORD PTR counter[rip], 1    ; ONE indivisible instruction
+          </asm-block>
+        </div>
+        <div class="callout danger"><span class="ci">💥</span><div><strong>الـ Data race = Undefined Behavior</strong><p>المعيار بيقول: لو two threads وصلوا لنفس المتغير ومنهم واحد بيكتب، من غير تزامن، ده UB. يعني النتيجة الغلط مش أسوأ حاجة ممكن تحصل: الـ compiler ممكن يحط المتغير في register ويعمل loop لا نهائي. الحل واحد من اتنين: <b>mutex</b> أو <b>atomics</b>.</p></div></div>
+
+        <h3 class="sub">Mutex: قفل على الـ Critical Section <span class="tag">pthread_mutex</span></h3>
+        <p>الـ <b>mutex</b> (mutual exclusion) قفل: thread واحد بس يقدر يمسكه في نفس الوقت، والباقي بيستنوا. الكود اللي بين <code>lock</code> و<code>unlock</code> اسمه <b>critical section</b>، وخليه أقصر ما يمكن.</p>
+        <c-example file="mutex.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+static long counter;
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void *inc(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 100000; i++) {
+        pthread_mutex_lock(&lock);
+        counter++;                     /* critical section */
+        pthread_mutex_unlock(&lock);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[4];
+    for (int i = 0; i < 4; i++) pthread_create(&t[i], NULL, inc, NULL);
+    for (int i = 0; i < 4; i++) pthread_join(t[i], NULL);
+    printf("counter = %ld (expected 400000)\n", counter);
+    return 0;
+}
+        </c-example>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>الـ Deadlock</strong><p>Thread A ماسك قفل 1 ومستني قفل 2، وthread B ماسك 2 ومستني 1، فالاتنين هيستنوا للأبد. القاعدة: لو محتاج أكتر من قفل، <b>امسكهم دايمًا بنفس الترتيب</b> في كل الكود. ولو نسيت <code>unlock</code> في مسار خطأ (<code>return</code> في النص)، نفس المشكلة، وده سبب نمط <code>goto cleanup</code> اللي شفته في المرحلة 04.</p></div></div>
+
+        <h3 class="sub">Atomics: عمليات مش بتتقسم <span class="tag">stdatomic.h</span></h3>
+        <p>لعمليات بسيطة زي عدّاد أو flag، الـ mutex تقيل. C11 فيها <code>&lt;stdatomic.h&gt;</code>: أنواع وعمليات الـ CPU بينفذها كخطوة واحدة (على x86 بـ prefix اسمه <code>lock</code>).</p>
+        <c-example file="atomics.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdatomic.h>
+#include <pthread.h>
+
+static atomic_long hits;                    /* atomic counter */
+static atomic_flag init_done = ATOMIC_FLAG_INIT;
+
+static void *worker(void *arg) {
+    (void)arg;
+    /* test_and_set returns the OLD value: only the first thread sees false */
+    if (!atomic_flag_test_and_set(&init_done))
+        puts("one-time init ran (exactly once)");
+    for (int i = 0; i < 100000; i++)
+        atomic_fetch_add(&hits, 1);         /* lock xadd / lock add */
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[4];
+    for (int i = 0; i < 4; i++) pthread_create(&t[i], NULL, worker, NULL);
+    for (int i = 0; i < 4; i++) pthread_join(t[i], NULL);
+    printf("hits = %ld\n", atomic_load(&hits));
+
+    /* compare-and-swap: "if value == expected, replace it" in one step */
+    atomic_int owner = 0;
+    int expected = 0;
+    int won = atomic_compare_exchange_strong(&owner, &expected, 1234);
+    printf("CAS #1 won=%d owner=%d\n", won, atomic_load(&owner));
+    expected = 0;
+    won = atomic_compare_exchange_strong(&owner, &expected, 5678);
+    printf("CAS #2 won=%d owner=%d (expected was updated to %d)\n",
+           won, atomic_load(&owner), expected);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ <code>lock</code> prefix في الـ disassembly</strong><p><code>lock xadd</code>، <code>lock inc</code>، <code>lock cmpxchg</code> = atomics. على Windows هتشوفها من <code>InterlockedIncrement</code> و<code>InterlockedCompareExchange</code> (الـ compiler بيعملها inline). و<code>xchg</code> مع الذاكرة atomic من غير <code>lock</code>. لما تلاقي <code>lock cmpxchg</code> جوه loop، ده غالبًا spinlock أو "run once" flag.</p></div></div>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong><code>volatile</code> مش للـ threads</strong><p>غلطة شائعة: <code>volatile int counter;</code> مش بتخلي <code>counter++</code> آمن. <code>volatile</code> بتقول للـ compiler "اقرا واكتب من الذاكرة كل مرة، متخزنهوش في register"، وده مفيد لـ hardware registers، ولمتغيرات الـ signal handlers (المرحلة 19)، ومع <code>setjmp</code>. لكنها مش بتمنع الـ interleaving. وفي الـ samples، <code>volatile</code> بتظهر في anti-debug timing loops عشان الـ compiler ميشيلش الـ loop الفاضي.</p></div></div>
+
+        <h3 class="sub">Condition Variables: استنى لحد ما حاجة تحصل <span class="tag">pthread_cond</span></h3>
+        <p>أحيانًا thread لازم يستنى thread تاني يخلص حاجة (مثلًا: الـ config يتفك قبل ما thread الـ C2 يبدأ). الحل الغلط: loop بيلف ويسأل كل شوية (بيحرق CPU). الحل الصح: <b>condition variable</b>، الـ thread بينام لحد ما حد يصحيه.</p>
+        <c-example file="condvar.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+static pthread_mutex_t m  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  cv = PTHREAD_COND_INITIALIZER;
+static int  config_ready;
+static char c2_addr[32];
+
+static void *loader(void *arg) {
+    (void)arg;
+    pthread_mutex_lock(&m);
+    snprintf(c2_addr, sizeof c2_addr, "%s", "10.0.0.5:443");  /* "decoded" */
+    config_ready = 1;
+    pthread_cond_signal(&cv);            /* wake up one waiter */
+    pthread_mutex_unlock(&m);
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t;
+    pthread_create(&t, NULL, loader, NULL);
+
+    pthread_mutex_lock(&m);
+    while (!config_ready)                /* ALWAYS a loop (spurious wakeups) */
+        pthread_cond_wait(&cv, &m);      /* releases m while sleeping */
+    printf("config ready: %s\n", c2_addr);
+    pthread_mutex_unlock(&m);
+
+    pthread_join(t, NULL);
+    return 0;
+}
+        </c-example>
+        <p>المقابل في Windows: <b>Events</b> (<code>CreateEventW</code> + <code>SetEvent</code> + <code>WaitForSingleObject</code>) أو <code>CONDITION_VARIABLE</code>. الـ events المسماة (named events) بتستخدم كمان للتواصل بين processes، واسمها IOC زي اسم الـ mutex.</p>
+
+        <h3 class="sub">Thread-Local Storage <span class="tag">_Thread_local · TLS</span></h3>
+        <p>متغير <code>_Thread_local</code> (في C23 اسمه <code>thread_local</code>) = global بس <b>لكل thread نسخة</b>. ده اللي بيخلي <code>errno</code> يشتغل صح مع الـ threads: كل thread ليه <code>errno</code> بتاعه.</p>
+        <c-example file="tls.c" posix>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+static _Thread_local int calls;      /* one copy PER thread */
+
+static void *work(void *arg) {
+    int *result = arg;
+    for (int i = 0; i < 5; i++)
+        calls++;                     /* no race: nobody else sees this copy */
+    *result = calls;
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[3];
+    int results[3];
+    for (int i = 0; i < 3; i++) pthread_create(&t[i], NULL, work, &results[i]);
+    for (int i = 0; i < 3; i++) {
+        pthread_join(t[i], NULL);
+        printf("thread %d saw calls = %d\n", i, results[i]);
+    }
+    printf("main thread's calls = %d\n", calls);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong><code>fs:</code> و <code>gs:</code> في الـ disassembly</strong><p>الـ TLS بيتوصل له عن طريق segment register: على <b>Linux x64</b> هو <code>fs</code> (مثلًا <code>mov rax, QWORD PTR fs:0x28</code> = الـ stack canary من المرحلة 15). على <b>Windows x64</b> هو <code>gs</code> وبيشاور على الـ <b>TEB</b>: <code>gs:[0x30]</code> = الـ TEB نفسه، و<code>gs:[0x60]</code> = الـ <b>PEB</b>. لما تلاقي <code>mov rax, gs:[60h]</code> ← <code>movzx eax, byte ptr [rax+2]</code>، ده قراية <code>PEB-&gt;BeingDebugged</code>، anti-debug من غير ما ينادي <code>IsDebuggerPresent</code>. وفي x86 (32-bit) نفس الكلام بس على <code>fs:[0x30]</code>.</p></div></div>
+
+        <h3 class="sub">نفس الأفكار في C11 وفي Windows <span class="tag">threads.h · Win32</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الفكرة</th><th>POSIX (Linux)</th><th>C11 <code>&lt;threads.h&gt;</code></th><th>Windows API</th></tr></thead>
+            <tbody>
+              <tr><td>إنشاء thread</td><td><code>pthread_create</code></td><td><code>thrd_create</code></td><td><code>CreateThread</code> / <code>_beginthreadex</code></td></tr>
+              <tr><td>استنى thread</td><td><code>pthread_join</code></td><td><code>thrd_join</code></td><td><code>WaitForSingleObject(hThread, INFINITE)</code></td></tr>
+              <tr><td>قفل جوه الـ process</td><td><code>pthread_mutex_t</code></td><td><code>mtx_t</code></td><td><code>CRITICAL_SECTION</code> / <code>SRWLOCK</code></td></tr>
+              <tr><td>قفل بين processes (بالاسم)</td><td>named semaphore</td><td>—</td><td><code>CreateMutexW(…, L"name")</code></td></tr>
+              <tr><td>Atomic increment</td><td><code>atomic_fetch_add</code></td><td><code>atomic_fetch_add</code></td><td><code>InterlockedIncrement</code></td></tr>
+              <tr><td>استنى حدث</td><td><code>pthread_cond_wait</code></td><td><code>cnd_wait</code></td><td><code>CreateEventW</code> + <code>WaitForSingleObject</code></td></tr>
+              <tr><td>TLS</td><td><code>_Thread_local</code> / <code>pthread_key_create</code></td><td><code>thread_local</code> / <code>tss_create</code></td><td><code>__declspec(thread)</code> / <code>TlsAlloc</code></td></tr>
+              <tr><td>نوم</td><td><code>nanosleep</code></td><td><code>thrd_sleep</code></td><td><code>Sleep(ms)</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="win_threads.c" win norun>
+#include <windows.h>
+#include <stdio.h>
+
+static volatile LONG g_count;
+static CRITICAL_SECTION g_cs;
+
+static DWORD WINAPI worker(LPVOID param) {     /* lpStartAddress */
+    int id = (int)(INT_PTR)param;              /* lpParameter */
+    for (int i = 0; i < 100000; i++)
+        InterlockedIncrement(&g_count);        /* lock inc / lock xadd */
+
+    EnterCriticalSection(&g_cs);
+    printf("worker %d done\n", id);
+    LeaveCriticalSection(&g_cs);
+    return 0;
+}
+
+int main(void) {
+    HANDLE h[4];
+    InitializeCriticalSection(&g_cs);
+    for (int i = 0; i < 4; i++) {
+        h[i] = CreateThread(NULL, 0, worker, (LPVOID)(INT_PTR)i, 0, NULL);
+        if (h[i] == NULL) return 1;
+    }
+    WaitForMultipleObjects(4, h, TRUE, INFINITE);   /* wait for ALL */
+    for (int i = 0; i < 4; i++) CloseHandle(h[i]);
+    DeleteCriticalSection(&g_cs);
+    printf("count = %ld\n", g_count);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ Threads في الـ malware</strong><p><b>(1)</b> thread بيعمل loop فيه <code>Sleep</code> ثم beacon للـ C2. <b>(2)</b> thread بيفحص كل شوية لو فيه debugger أو أداة تحليل (watchdog). <b>(3)</b> thread pool للتشفير السريع في الـ ransomware (وغالبًا I/O Completion Ports: <code>CreateIoCompletionPort</code>). <b>(4)</b> <code>CreateThread</code> بـ flag <code>CREATE_SUSPENDED</code> (القيمة <code>4</code>) ثم تعديل الـ context ثم <code>ResumeThread</code>: نمط injection. <b>(5)</b> <code>CreateRemoteThread</code> = thread جوه process <b>تاني</b> (المرحلة 17). وفي الـ debugging: لو الـ breakpoint بتاعك مش بيضرب، يمكن الكود شغال في thread تاني، فبص على تبويب Threads.</p></div></div>
+
+        <h3 class="sub">Race Conditions كثغرة: TOCTOU <span class="tag">CWE-367</span></h3>
+        <p>مش لازم threads عشان يبقى فيه race. <b>Time-Of-Check to Time-Of-Use</b>: البرنامج <b>يتأكد</b> من حاجة، وبعدين <b>يستخدمها</b>، وفي الفترة اللي بينهم حد تاني غيّرها. المثال الكلاسيكي: برنامج privileged بيعمل <code>access("/tmp/report", W_OK)</code> وبعدين <code>open("/tmp/report")</code>. بين السطرين، المهاجم يبدّل الملف بـ symlink لـ <code>/etc/passwd</code>. الحل: متفصلش الـ check عن الـ use، افتح الملف مرة واحدة واشتغل على الـ descriptor (<code>open</code> بـ <code>O_NOFOLLOW</code>، ثم <code>fstat</code> على نفس الـ fd).</p>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 18</h3></div>
+
+          <quiz id="s18-q1" answer="2">
+            <q>أنهي حاجة <b>مش</b> مشتركة بين الـ threads اللي في نفس الـ process؟</q>
+            <o>الـ heap</o>
+            <o>المتغيرات الـ global</o>
+            <o>الـ stack (المتغيرات المحلية)</o>
+            <o>الـ file descriptors المفتوحة</o>
+            <good>كل thread ليه stack ومجموعة registers خاصة بيه. كل الباقي مشترك.</good>
+            <bad>فكر: لو الـ threads بيشتركوا في الـ stack، الـ <code>call</code> و<code>ret</code> بتوعهم هيبوظوا بعض.</bad>
+          </quiz>
+
+          <quiz id="s18-q2" answer="1">
+            <q>4 threads كل واحد بيعمل <code>counter++</code> مليون مرة من غير قفل، والنتيجة 2,713,604 بدل 4,000,000. ليه؟</q>
+            <o>الـ CPU بيتجاهل بعض الـ instructions</o>
+            <o><code>counter++</code> = قراية ثم زيادة ثم كتابة، ولما two threads يقروا نفس القيمة قبل ما حد يكتب، زيادة بتضيع</o>
+            <o>الـ int عمل overflow</o>
+            <o>الـ threads اتقفلت قبل ما تخلص</o>
+            <good>ده الـ lost update الكلاسيكي. الحل: mutex أو <code>atomic_fetch_add</code> (<code>lock add</code>).</good>
+            <bad>بص على الـ Assembly بتاع <code>counter++</code> بـ <code>-O0</code>: كام instruction؟</bad>
+          </quiz>
+
+          <quiz id="s18-q3" answer="3">
+            <q>في sample لقيت: <code>lea r8, [sub_401A30]</code> ← <code>xor edx, edx</code> ← <code>xor ecx, ecx</code> ← <code>call cs:CreateThread</code>. الكود اللي هيشتغل في الـ thread الجديد فين؟</q>
+            <o>في الـ instruction اللي بعد الـ <code>call</code></o>
+            <o>في <code>CreateThread</code> نفسها</o>
+            <o>مفيش كود، ده thread فاضي</o>
+            <o>في <code>sub_401A30</code>: الـ argument التالت (<code>r8</code>) هو <code>lpStartAddress</code></o>
+            <good>Microsoft x64: <code>rcx, rdx, r8, r9</code>. التالت = عنوان دالة الـ thread، والرابع (<code>r9</code>) = الـ parameter بتاعها.</good>
+            <bad>رتّب الـ arguments: <code>CreateThread(lpThreadAttributes, dwStackSize, lpStartAddress, lpParameter, …)</code>.</bad>
+          </quiz>
+
+          <quiz id="s18-q4" answer="0">
+            <q>ليه <code>pthread_cond_wait</code> لازم تبقى جوه <code>while</code> مش <code>if</code>؟</q>
+            <o>لأن الـ thread ممكن يصحى من غير ما الشرط يتحقق (spurious wakeup، أو thread تاني سبقه)، فلازم يتأكد تاني</o>
+            <o>عشان الـ compiler يعرف يعملها optimization</o>
+            <o>لأن <code>if</code> مش بتشتغل مع الـ mutex</o>
+            <o>مش لازم، <code>if</code> كفاية</o>
+            <good>الـ wakeup معناه "ممكن الشرط اتغير"، مش "الشرط اتحقق". الـ loop بيعيد الفحص وهو ماسك القفل.</good>
+            <bad>هل الـ wakeup ضمان إن <code>config_ready == 1</code>؟</bad>
+          </quiz>
+
+          <quiz id="s18-q5" answer="2">
+            <q>لقيت <code>mov rax, gs:[60h]</code> ← <code>movzx eax, byte ptr [rax+2]</code> ← <code>test eax, eax</code> ← <code>jnz exit_quietly</code>. ده إيه؟</q>
+            <o>قراية متغير <code>_Thread_local</code> عادي</o>
+            <o>stack canary</o>
+            <o>Anti-debug: قراية <code>PEB-&gt;BeingDebugged</code> مباشرة من غير <code>IsDebuggerPresent</code></o>
+            <o>إنشاء thread</o>
+            <good><code>gs:[0x60]</code> على x64 = عنوان الـ PEB، والـ byte عند offset 2 = <code>BeingDebugged</code>. الـ bypass: صفّر الـ byte ده في x64dbg (أو ScyllaHide).</good>
+            <bad><code>gs</code> على Windows x64 بيشاور على الـ TEB. إيه اللي عند offset <code>0x60</code> في الـ TEB؟</bad>
+          </quiz>
+
+          <quiz id="s18-q6" answer="1">
+            <q><code>volatile int counter;</code> وكل الـ threads بتعمل <code>counter++</code>. النتيجة؟</q>
+            <o>آمن تمامًا، <code>volatile</code> بتخليها atomic</o>
+            <o>لسه race: <code>volatile</code> بتمنع الـ caching في registers بس، والـ read-modify-write لسه 3 خطوات</o>
+            <o>compile error</o>
+            <o>البرنامج هيقف (deadlock)</o>
+            <good><code>volatile</code> ≠ atomic. استخدم <code>atomic_int</code> أو mutex.</good>
+            <bad>هل <code>volatile</code> بتحط <code>lock</code> prefix؟</bad>
+          </quiz>
+
+          <challenge id="s18-c1" title="أكبر قيمة بـ 4 threads" posix>
+            <desc>عندك array من 400 رقم: <code>data[i] = (i*i*31 + i*7 + 3) % 997</code>. قسّمها على 4 threads، كل thread ياخد 100 عنصر ويلاقي <b>أكبر قيمة وأول index ليها</b> (index في الـ array الكامل). بعد الـ <code>join</code> اطبع نتيجة كل thread بالترتيب، وبعدين الـ max الكلي:<br><code>slice 0: max = 984 at index 84</code><br><code>slice 1: max = 986 at index 184</code><br><code>slice 2: max = 981 at index 290</code><br><code>slice 3: max = 987 at index 309</code><br><code>global max = 987</code></desc>
+            <starter>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+#define N 400
+static int data[N];
+
+typedef struct {
+    int start, end;      /* [start, end) */
+    int max, max_index;  /* results */
+} Slice;
+
+static void *find_max(void *arg) {
+    Slice *s = arg;
+    // TODO: scan data[s->start .. s->end) and fill s->max, s->max_index
+    (void)s;
+    return NULL;
+}
+
+int main(void) {
+    for (int i = 0; i < N; i++) data[i] = (i * i * 31 + i * 7 + 3) % 997;
+    // TODO: create 4 threads (100 elements each), join them, print the results
+    (void)find_max;
+    return 0;
+}
+            </starter>
+            <expected>
+slice 0: max = 984 at index 84
+slice 1: max = 986 at index 184
+slice 2: max = 981 at index 290
+slice 3: max = 987 at index 309
+global max = 987
+            </expected>
+            <solution>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+#define N 400
+static int data[N];
+
+typedef struct {
+    int start, end;      /* [start, end) */
+    int max, max_index;  /* results */
+} Slice;
+
+static void *find_max(void *arg) {
+    Slice *s = arg;
+    s->max = data[s->start];
+    s->max_index = s->start;
+    for (int i = s->start + 1; i < s->end; i++) {
+        if (data[i] > s->max) {          /* strict >: keep the FIRST index */
+            s->max = data[i];
+            s->max_index = i;
+        }
+    }
+    return NULL;
+}
+
+int main(void) {
+    for (int i = 0; i < N; i++) data[i] = (i * i * 31 + i * 7 + 3) % 997;
+
+    pthread_t t[4];
+    Slice s[4];
+    for (int k = 0; k < 4; k++) {
+        s[k] = (Slice){ .start = k * 100, .end = (k + 1) * 100 };
+        pthread_create(&t[k], NULL, find_max, &s[k]);
+    }
+    int global = 0;
+    for (int k = 0; k < 4; k++) {
+        pthread_join(t[k], NULL);
+        printf("slice %d: max = %d at index %d\n", k, s[k].max, s[k].max_index);
+        if (s[k].max > global) global = s[k].max;
+    }
+    printf("global max = %d\n", global);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s18-c2" title="صلّح الـ Race" level="2" posix>
+            <desc>الكود ده فيه data race: 4 threads بيزوّدوا <code>counter</code> كل واحد 100,000 مرة، والنتيجة بتطلع أقل من المفروض. صلّحه بطريقة من الاتنين (mutex أو <code>&lt;stdatomic.h&gt;</code>) عشان يطبع دايمًا:<br><code>counter = 400000</code></desc>
+            <starter>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+static long counter;     // BUG: shared and unprotected
+
+static void *inc(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 100000; i++)
+        counter++;
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[4];
+    for (int i = 0; i < 4; i++) pthread_create(&t[i], NULL, inc, NULL);
+    for (int i = 0; i < 4; i++) pthread_join(t[i], NULL);
+    printf("counter = %ld\n", counter);
+    return 0;
+}
+            </starter>
+            <expected>
+counter = 400000
+            </expected>
+            <solution>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdatomic.h>
+#include <pthread.h>
+
+static atomic_long counter;     /* every ++ is now one lock'ed instruction */
+
+static void *inc(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 100000; i++)
+        atomic_fetch_add(&counter, 1);
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[4];
+    for (int i = 0; i < 4; i++) pthread_create(&t[i], NULL, inc, NULL);
+    for (int i = 0; i < 4; i++) pthread_join(t[i], NULL);
+    printf("counter = %ld\n", atomic_load(&counter));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s18-c3" title="Producer / Consumer بـ ring buffer" level="3" posix>
+            <desc>Thread <b>producer</b> بيحط الأرقام من 1 لـ 20 في ring buffer حجمه <b>4 بس</b>، وthread <b>consumer</b> بيسحبهم ويجمعهم. لما الـ buffer يتملي الـ producer يستنى، ولما يفضى الـ consumer يستنى، باستخدام mutex واتنين condition variables (<code>not_full</code> و<code>not_empty</code>). في الآخر اطبع من <code>main</code>:<br><code>consumed 20 items</code><br><code>sum = 210</code></desc>
+            <starter>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+#define CAP 4
+#define ITEMS 20
+
+static int buf[CAP];
+static int head, tail, count;           /* ring buffer state */
+static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t not_full  = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t not_empty = PTHREAD_COND_INITIALIZER;
+
+static void *producer(void *arg) {
+    (void)arg;
+    // TODO: for v = 1..ITEMS: wait while full, put v at buf[tail], signal not_empty
+    return NULL;
+}
+
+static void *consumer(void *arg) {
+    long *sum = arg;
+    // TODO: take ITEMS values: wait while empty, read buf[head], signal not_full
+    (void)sum;
+    return NULL;
+}
+
+int main(void) {
+    pthread_t p, c;
+    long sum = 0;
+    pthread_create(&p, NULL, producer, NULL);
+    pthread_create(&c, NULL, consumer, &sum);
+    pthread_join(p, NULL);
+    pthread_join(c, NULL);
+    printf("consumed %d items\n", ITEMS);
+    printf("sum = %ld\n", sum);
+    (void)buf; (void)head; (void)tail; (void)count;
+    return 0;
+}
+            </starter>
+            <expected>
+consumed 20 items
+sum = 210
+            </expected>
+            <solution>
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <pthread.h>
+
+#define CAP 4
+#define ITEMS 20
+
+static int buf[CAP];
+static int head, tail, count;           /* ring buffer state */
+static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t not_full  = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t not_empty = PTHREAD_COND_INITIALIZER;
+
+static void *producer(void *arg) {
+    (void)arg;
+    for (int v = 1; v <= ITEMS; v++) {
+        pthread_mutex_lock(&m);
+        while (count == CAP)
+            pthread_cond_wait(&not_full, &m);
+        buf[tail] = v;
+        tail = (tail + 1) % CAP;
+        count++;
+        pthread_cond_signal(&not_empty);
+        pthread_mutex_unlock(&m);
+    }
+    return NULL;
+}
+
+static void *consumer(void *arg) {
+    long *sum = arg;
+    for (int i = 0; i < ITEMS; i++) {
+        pthread_mutex_lock(&m);
+        while (count == 0)
+            pthread_cond_wait(&not_empty, &m);
+        *sum += buf[head];
+        head = (head + 1) % CAP;
+        count--;
+        pthread_cond_signal(&not_full);
+        pthread_mutex_unlock(&m);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t p, c;
+    long sum = 0;
+    pthread_create(&p, NULL, producer, NULL);
+    pthread_create(&c, NULL, consumer, &sum);
+    pthread_join(p, NULL);
+    pthread_join(c, NULL);
+    printf("consumed %d items\n", ITEMS);
+    printf("sum = %ld\n", sum);
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

@@ -260,6 +260,80 @@ int main(void) {
         </c-example>
         <p>لو الشرط اتكسر، <code>assert</code> بتطبع الملف والسطر والشرط نفسه كـ string وتقفل البرنامج — وده سبب تاني لظهور مسارات ومعلومات في الـ binaries. في الـ release builds (<code>-DNDEBUG</code>) بتختفي تمامًا.</p>
 
+        <h3 class="sub">_Generic و _Static_assert <span class="tag">C11</span></h3>
+        <p><code>_Generic</code> بيختار expression حسب <b>نوع</b> الـ argument وقت الـ compile (زي overloading صغير في C، ومنه اتعملت <code>&lt;tgmath.h&gt;</code>). و<code>_Static_assert</code> = <code>assert</code> بس الـ <b>compiler</b> هو اللي بيتأكد، فمش بتكلف أي حاجة وقت التشغيل، ومثالية للتأكد إن الـ structs اللي بتمثل formats على الـ disk حجمها صح (شفتها في PE parser في المرحلة 16).</p>
+        <c-example file="generic.c">
+#include <stdio.h>
+#include <stdint.h>
+
+#define type_name(x) _Generic((x),                                    \
+    char: "char", int: "int", unsigned: "unsigned", long: "long",     \
+    double: "double", char *: "char *", const char *: "const char *", \
+    default: "other")
+
+#define print_any(x) printf(_Generic((x),                             \
+    int: "%d\n", unsigned: "%u\n", double: "%.2f\n",                  \
+    char *: "%s\n", const char *: "%s\n", default: "?\n"), (x))
+
+typedef struct {
+    uint16_t magic;
+    uint32_t size;
+} __attribute__((packed)) DiskHeader;
+
+/* checked by the COMPILER: a wrong layout = build error, zero run-time cost */
+_Static_assert(sizeof(DiskHeader) == 6, "DiskHeader must be 6 bytes on disk");
+_Static_assert(sizeof(void *) == 8, "this tool assumes a 64-bit target");
+
+int main(void) {
+    int i = 42;
+    double d = 2.5;
+    const char *s = "ntdll.dll";
+    printf("%s | %s | %s | %s\n", type_name(i), type_name(d), type_name(s), type_name('A'));
+    print_any(i);
+    print_any(d);
+    print_any(s);
+    print_any(7u);
+    return 0;
+}
+        </c-example>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>ليه <code>'A'</code> طلعت <code>int</code>؟</strong><p>في C (عكس C++)، الـ character constant زي <code>'A'</code> نوعها <code>int</code> مش <code>char</code>. <code>_Generic</code> بيكشف الحقيقة دي. ولو عايز <code>char</code> لازم متغير من النوع ده أو cast.</p></div></div>
+
+        <h3 class="sub">C23: الجديد في المعيار <span class="tag">-std=c23</span></h3>
+        <p>الكورس مكتوب بـ C17، لكن <b>GCC 15 بقى بيستخدم C23 (<code>gnu23</code>) كـ default</b>، فهتقابله في الكود الحديث. أهم الإضافات في مثال واحد (المثال ده بيتعمله compile بـ <code>-std=c23</code>):</p>
+        <c-example file="c23.c" std="c23">
+#include <stdio.h>
+
+int main(void) {
+    constexpr int KEY_LEN = 16;              /* a real compile-time constant */
+    unsigned char key[KEY_LEN] = {};         /* empty initializer = all zeros */
+    int *p = nullptr;                        /* typed null pointer constant */
+    bool ok = true;                          /* bool/true/false are keywords now */
+    auto n = 0b1010'1010;                    /* binary literal + digit separator, type inferred */
+    typeof(n) copy = n;                      /* typeof is standard */
+    [[maybe_unused]] int spare = 0;          /* standard attributes */
+    static_assert(sizeof key == 16);         /* no message needed, no underscore */
+
+    printf("KEY_LEN=%d key[0]=%d p==nullptr:%d ok=%d n=%d copy=0x%X\n",
+           KEY_LEN, key[0], p == nullptr, ok, n, (unsigned)copy);
+    printf("__STDC_VERSION__ = %ldL\n", (long)__STDC_VERSION__);
+    return 0;
+}
+        </c-example>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>C23</th><th>بيستبدل</th><th>ملاحظة</th></tr></thead>
+            <tbody>
+              <tr><td><code>nullptr</code></td><td><code>NULL</code> (اللي ممكن يبقى <code>0</code> أو <code>(void*)0</code>)</td><td>نوعه <code>nullptr_t</code>، أأمن مع <code>_Generic</code> والـ variadic functions</td></tr>
+              <tr><td><code>bool</code>، <code>true</code>، <code>false</code>، <code>alignas</code>، <code>static_assert</code>، <code>thread_local</code></td><td><code>_Bool</code> و<code>&lt;stdbool.h&gt;</code> وأخواتها</td><td>بقوا keywords</td></tr>
+              <tr><td><code>constexpr</code></td><td><code>#define</code> للثوابت</td><td>ثابت ليه نوع وبيظهر في الـ debugger</td></tr>
+              <tr><td><code>typeof</code> / <code>auto</code></td><td>extension بتاع GCC</td><td><code>auto</code> هنا type inference (زي C++)</td></tr>
+              <tr><td><code>#embed "file.bin"</code></td><td>تحويل الملف لـ array بأداة خارجية (<code>xxd -i</code>)</td><td>بيحط bytes ملف جوه الـ binary وقت الـ compile، وده بالظبط إزاي payload أو resource بيتدفن في exe</td></tr>
+              <tr><td><code>[[nodiscard]]</code>، <code>[[noreturn]]</code>، <code>[[deprecated]]</code></td><td><code>__attribute__((…))</code></td><td>attributes قياسية</td></tr>
+              <tr><td><code>&lt;stdckdint.h&gt;</code>: <code>ckd_add</code>، <code>ckd_mul</code></td><td>checks يدوية للـ overflow (المرحلة 09)</td><td>بترجع <code>true</code> لو حصل overflow. مثالية لحساب الأحجام بأمان</td></tr>
+            </tbody>
+          </table>
+        </div>
+
         <div class="exercises">
           <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 11</h3></div>
 
@@ -352,5 +426,25 @@ int main(void) {
 }
             </solution>
           </challenge>
+
+          <quiz id="s11-q6" answer="3">
+            <q>إيه فايدة <code>_Static_assert(sizeof(DiskHeader) == 6, "...")</code> في parser لـ file format؟</q>
+            <o>بتفحص الملف وقت التشغيل</o>
+            <o>بتخلي الـ struct أصغر</o>
+            <o>بتعمل padding تلقائي</o>
+            <o>لو الـ compiler حط padding أو حجم نوع اختلف على منصة تانية، الـ build نفسه يفشل بدل ما الـ parser يقرا bytes غلط بهدوء</o>
+            <good>Check مجاني وقت الـ compile. أي struct بيمثل bytes على الـ disk أو الشبكة يستاهل واحدة.</good>
+            <bad>"Static" هنا معناها "وقت الـ compile".</bad>
+          </quiz>
+
+          <quiz id="s11-q7" answer="0">
+            <q>في C، <code>_Generic('A', char: 1, int: 2, default: 3)</code> قيمتها كام؟</q>
+            <o><code>2</code>، لأن <code>'A'</code> في C نوعها <code>int</code></o>
+            <o><code>1</code></o>
+            <o><code>3</code></o>
+            <o>compile error</o>
+            <good>Character constants في C نوعها <code>int</code> (في C++ نوعها <code>char</code>).</good>
+            <bad>جرّب <code>sizeof('A')</code> في C. كام؟</bad>
+          </quiz>
         </div>
       </section>

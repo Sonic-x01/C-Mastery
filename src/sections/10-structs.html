@@ -293,6 +293,40 @@ int main(void) {
         </c-example>
         <p>النمط ده (header فيه طول + بيانات بعده مباشرة) هو شكل <b>أغلب</b> الـ network packets والـ resources والـ configs اللي هتقابلها. TLV (Type-Length-Value) بالظبط.</p>
 
+        <h3 class="sub">Compound Literals و Designated Initializers و Alignment <span class="tag">C99 · C11</span></h3>
+        <p>3 أدوات حديثة هتشوفها في أي كود C معاصر: <b>compound literal</b> <code>(Type){ … }</code> = object من غير اسم بتعمله في مكانه، و<b>designated initializers للـ arrays</b> <code>[index] = value</code>، و<code>alignas</code>/<code>alignof</code> للتحكم في الـ alignment (من <code>&lt;stdalign.h&gt;</code>، وفي C23 بقوا keywords).</p>
+        <c-example file="modern_init.c">
+#include <stdio.h>
+#include <stdint.h>
+#include <stdalign.h>
+
+typedef struct { int x, y; } Point;
+
+static int dist2(Point a, Point b) {
+    int dx = a.x - b.x, dy = a.y - b.y;
+    return dx * dx + dy * dy;
+}
+
+int main(void) {
+    /* compound literals: unnamed objects created in place */
+    printf("dist2 = %d\n", dist2((Point){ 0, 0 }, (Point){ .x = 3, .y = 4 }));
+    int *p = (int[]){ 10, 20, 30 };                /* a temporary array */
+    printf("p[2] = %d\n", p[2]);
+
+    /* designated initializers for arrays: index -> value, the rest is 0/NULL */
+    const char *status[8] = { [0] = "OK", [2] = "NOT_FOUND", [5] = "IO_ERROR" };
+    for (int i = 0; i < 8; i++)
+        if (status[i] != NULL) printf("status[%d] = %s\n", i, status[i]);
+
+    /* alignment */
+    alignas(16) unsigned char key[16] = { 0 };     /* e.g. for SSE / AES-NI loads */
+    printf("alignof(double) = %zu, alignof(Point) = %zu\n", alignof(double), alignof(Point));
+    printf("key is 16-byte aligned: %s\n", ((uintptr_t)key % 16 == 0) ? "yes" : "no");
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>في الـ binary</strong><p>Array بـ designated initializers زي <code>status[]</code> بيبقى جدول في <code>.rdata</code> فيه <b>فجوات أصفار</b> بين الـ pointers، وده شكل جداول الأخطاء والأوامر اللي الـ index فيها هو الـ command ID. والـ <code>alignas(16)</code> على متغير محلي بيخلي الـ prologue فيه <code>and rsp, -16</code> (أو <code>0FFFFFFFFFFFFFFF0h</code>)، وبيظهر كتير مع كود crypto بيستخدم SSE/AES-NI (<code>movdqa</code>، <code>aesenc</code>).</p></div></div>
+
         <div class="exercises">
           <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 10</h3></div>
 
@@ -534,5 +568,15 @@ int main(void) {
 }
             </solution>
           </challenge>
+
+          <quiz id="s10-q6" answer="2">
+            <q><code>const char *names[6] = { [1] = "sleep", [4] = "exit" };</code>. قيمة <code>names[3]</code>؟</q>
+            <o><code>"sleep"</code></o>
+            <o><code>"exit"</code></o>
+            <o><code>NULL</code>: أي عنصر متحددش بيتصفّر</o>
+            <o>قيمة عشوائية</o>
+            <good>في أي initializer، العناصر اللي متذكرتش بتاخد صفر (<code>NULL</code> للـ pointers)، حتى للمتغيرات المحلية.</good>
+            <bad>الـ designated initializers بتحدد عناصر بعينها. والباقي؟</bad>
+          </quiz>
         </div>
       </section>

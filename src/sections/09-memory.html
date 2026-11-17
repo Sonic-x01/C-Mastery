@@ -211,6 +211,136 @@ int main(void) {
 }
         </c-example>
 
+        <h3 class="sub">Hash Table: بحث سريع بالمفتاح <span class="tag">hashing · chaining</span></h3>
+        <p>الـ dynamic array كويس لما تمشي على العناصر بالترتيب. لكن لو عايز تسأل "الـ domain ده شفته قبل كده؟" بسرعة وسط آلاف، محتاج <b>hash table</b>: دالة <b>hash</b> بتحوّل المفتاح لرقم، والرقم بيحدد <b>bucket</b>، وكل bucket فيه linked list صغيرة للمفاتيح اللي وقعت فيه (<i>chaining</i>).</p>
+        <c-example file="hash_table.c">
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+#define BUCKETS 16                          /* power of 2 -> index = hash & 15 */
+
+typedef struct Node {
+    char *key;
+    int count;
+    struct Node *next;                      /* collisions form a list */
+} Node;
+
+static Node *table[BUCKETS];
+
+static uint32_t fnv1a(const char *s) {      /* FNV-1a, 32-bit */
+    uint32_t h = 2166136261u;               /* offset basis 0x811C9DC5 */
+    while (*s) {
+        h ^= (uint8_t)*s++;
+        h *= 16777619u;                     /* FNV prime 0x01000193 */
+    }
+    return h;
+}
+
+static void add(const char *key) {
+    uint32_t b = fnv1a(key) & (BUCKETS - 1);
+    for (Node *n = table[b]; n != NULL; n = n->next)
+        if (strcmp(n->key, key) == 0) { n->count++; return; }
+    Node *n = malloc(sizeof *n);
+    if (n == NULL) return;
+    n->key = malloc(strlen(key) + 1);
+    if (n->key == NULL) { free(n); return; }
+    strcpy(n->key, key);
+    n->count = 1;
+    n->next = table[b];                     /* push at the head of the bucket */
+    table[b] = n;
+}
+
+static int count_of(const char *key) {
+    for (Node *n = table[fnv1a(key) & (BUCKETS - 1)]; n != NULL; n = n->next)
+        if (strcmp(n->key, key) == 0) return n->count;
+    return 0;
+}
+
+int main(void) {
+    const char *iocs[] = { "evil.example", "10.0.0.5", "evil.example",
+                           "update.bin", "10.0.0.5", "evil.example" };
+    for (size_t i = 0; i < sizeof iocs / sizeof iocs[0]; i++) add(iocs[i]);
+
+    uint32_t h = fnv1a("evil.example");
+    printf("fnv1a(\"evil.example\") = 0x%08X -> bucket %u\n", h, h & (BUCKETS - 1));
+    printf("evil.example seen %d times\n", count_of("evil.example"));
+    printf("10.0.0.5     seen %d times\n", count_of("10.0.0.5"));
+    printf("clean.org    seen %d times\n", count_of("clean.org"));
+
+    for (int b = 0; b < BUCKETS; b++) {     /* free everything */
+        Node *n = table[b];
+        while (n != NULL) {
+            Node *next = n->next;
+            free(n->key);
+            free(n);
+            n = next;
+        }
+    }
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>احفظ ثوابت الـ hash functions</strong><p>نفس الـ hash functions دي بتستخدم في <b>API hashing</b> (المرحلة 03 و08). لو شفت الثوابت دي في sample، عرفت الخوارزمية فورًا: <code>0x811C9DC5</code> + <code>0x01000193</code> = <b>FNV-1a</b>، و<code>5381</code> + ضرب في 33 (أو <code>shl 5</code> + add) = <b>djb2</b>، و<code>0xEDB88320</code> = <b>CRC32</b>، و<code>ror 13</code> = الـ ROR-13 بتاع الـ shellcode. وhash table في الـ binary شكلها: <code>and eax, 0Fh</code> (أو <code>div</code> على عدد أولي) ← index في array من pointers ← loop على <code>[node+10h]</code> (الـ <code>next</code>).</p></div></div>
+
+        <h3 class="sub">Binary Search Tree <span class="tag">trees</span></h3>
+        <p>شجرة كل node فيها مفتاح، و<b>كل اللي على الشمال أصغر وكل اللي على اليمين أكبر</b>. البحث والإضافة متوسطهم <code>O(log n)</code>، والمشي <i>in-order</i> (شمال ← النود ← يمين) بيطلع المفاتيح <b>مترتبة</b>. ده أساس <code>std::map</code> في C++ (المرحلة 22) والـ <code>RTL_AVL_TABLE</code> في Windows.</p>
+        <c-example file="bst.c">
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Tree {
+    int key;                            /* e.g. a PID */
+    struct Tree *left, *right;          /* in the binary: [node+8], [node+10h] */
+} Tree;
+
+static Tree *insert(Tree *t, int key) {
+    if (t == NULL) {
+        Tree *n = calloc(1, sizeof *n);
+        if (n != NULL) n->key = key;
+        return n;
+    }
+    if (key < t->key)      t->left  = insert(t->left, key);
+    else if (key > t->key) t->right = insert(t->right, key);
+    return t;                           /* duplicates are ignored */
+}
+
+static int contains(const Tree *t, int key) {
+    while (t != NULL) {                 /* iterative search: go left or right */
+        if (key == t->key) return 1;
+        t = key < t->key ? t->left : t->right;
+    }
+    return 0;
+}
+
+static void in_order(const Tree *t) {
+    if (t == NULL) return;
+    in_order(t->left);
+    printf("%d ", t->key);
+    in_order(t->right);
+}
+
+static void destroy(Tree *t) {
+    if (t == NULL) return;
+    destroy(t->left);
+    destroy(t->right);
+    free(t);
+}
+
+int main(void) {
+    const int pids[] = { 772, 4, 4096, 640, 1337, 4, 88 };
+    Tree *root = NULL;
+    for (size_t i = 0; i < sizeof pids / sizeof pids[0]; i++)
+        root = insert(root, pids[i]);
+    printf("sorted: ");
+    in_order(root);
+    printf("\ncontains 1337? %s, contains 5? %s\n",
+           contains(root, 1337) ? "yes" : "no", contains(root, 5) ? "yes" : "no");
+    destroy(root);
+    return 0;
+}
+        </c-example>
+
         <h3 class="sub">الذاكرة على Windows <span class="tag">HeapAlloc · VirtualAlloc</span></h3>
         <div class="table-wrap">
           <table class="ref">
@@ -429,6 +559,100 @@ int main(void) {
     printf("%zu tokens\n", n);
     for (size_t i = 0; i < n; i++) printf("[%zu] %s\n", i, parts[i]);
     free_split(parts, n);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <quiz id="s09-q7" answer="1">
+            <q>في loop جوه sample لقيت: <code>xor eax, ecx</code> ← <code>imul eax, eax, 1000193h</code>، والقيمة الابتدائية <code>811C9DC5h</code>. ده إيه؟</q>
+            <o>CRC32</o>
+            <o>FNV-1a hash (غالبًا API hashing أو hash table)</o>
+            <o>AES</o>
+            <o>Base64</o>
+            <good>Offset basis <code>0x811C9DC5</code> + prime <code>0x01000193</code> = FNV-1a 32-bit. احسب hash كل أسماء الـ APIs بنفس الخوارزمية وطابق.</good>
+            <bad>دوّر على الثابتين دول في جدول ثوابت الـ hash functions اللي فوق.</bad>
+          </quiz>
+
+          <challenge id="s09-c3" title="Hash set للـ PIDs (open addressing)" level="2">
+            <desc>اعمل hash set لأرقام <code>uint32_t</code> من غير linked lists: array ثابت حجمه 16، والـ index = <code>(pid * 2654435761u) &gt;&gt; 28</code>، ولو المكان مشغول جرّب اللي بعده (<code>(i + 1) &amp; 15</code>) لحد ما تلاقي فاضي أو نفس الرقم (<i>linear probing</i>). استخدم <code>0</code> كعلامة "فاضي" (الأرقام كلها أكبر من صفر). ضيف الـ PIDs واطبع:<br><code>unique = 5</code><br><code>contains 4242: yes</code><br><code>contains 9999: no</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+#define SLOTS 16
+static uint32_t slots[SLOTS];        /* 0 = empty */
+
+static uint32_t slot_of(uint32_t pid) { return (pid * 2654435761u) >> 28; }
+
+/* returns 1 if newly inserted, 0 if it was already there */
+static int insert(uint32_t pid) {
+    // TODO
+    (void)pid;
+    return 0;
+}
+
+static int contains(uint32_t pid) {
+    // TODO
+    (void)pid;
+    return 0;
+}
+
+int main(void) {
+    const uint32_t pids[] = { 4, 772, 1337, 4, 640, 1337, 4242, 772, 4 };
+    int unique = 0;
+    for (size_t i = 0; i < sizeof pids / sizeof pids[0]; i++)
+        unique += insert(pids[i]);
+    printf("unique = %d\n", unique);
+    printf("contains 4242: %s\n", contains(4242) ? "yes" : "no");
+    printf("contains 9999: %s\n", contains(9999) ? "yes" : "no");
+    (void)slot_of; (void)slots;
+    return 0;
+}
+            </starter>
+            <expected>
+unique = 5
+contains 4242: yes
+contains 9999: no
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+#define SLOTS 16
+static uint32_t slots[SLOTS];        /* 0 = empty */
+
+static uint32_t slot_of(uint32_t pid) { return (pid * 2654435761u) >> 28; }
+
+/* returns 1 if newly inserted, 0 if it was already there */
+static int insert(uint32_t pid) {
+    uint32_t i = slot_of(pid);
+    for (int tries = 0; tries < SLOTS; tries++) {
+        if (slots[i] == pid) return 0;          /* already present */
+        if (slots[i] == 0) { slots[i] = pid; return 1; }
+        i = (i + 1) & (SLOTS - 1);              /* linear probing */
+    }
+    return 0;                                   /* table full */
+}
+
+static int contains(uint32_t pid) {
+    uint32_t i = slot_of(pid);
+    for (int tries = 0; tries < SLOTS; tries++) {
+        if (slots[i] == pid) return 1;
+        if (slots[i] == 0) return 0;            /* hit an empty slot: not here */
+        i = (i + 1) & (SLOTS - 1);
+    }
+    return 0;
+}
+
+int main(void) {
+    const uint32_t pids[] = { 4, 772, 1337, 4, 640, 1337, 4242, 772, 4 };
+    int unique = 0;
+    for (size_t i = 0; i < sizeof pids / sizeof pids[0]; i++)
+        unique += insert(pids[i]);
+    printf("unique = %d\n", unique);
+    printf("contains 4242: %s\n", contains(4242) ? "yes" : "no");
+    printf("contains 9999: %s\n", contains(9999) ? "yes" : "no");
     return 0;
 }
             </solution>

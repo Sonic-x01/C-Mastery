@@ -184,17 +184,27 @@
   }
 
   /* ---------------- Compiler Explorer engine ---------------- */
-  const CE_URL = "https://godbolt.org/api/compiler/cg152/compile";
-  const BASE_FLAGS = "-std=c17 -Wall -Wextra -fdiagnostics-color=never -lm";
+  /* Two toolchains: C (default) and C++ (examples marked data-lang="cpp").
+     A block may also pin its C standard with data-std (e.g. "c23"). */
+  const TOOLCHAINS = {
+    c:   { id: "cg152", lang: "c",   std: "c17",   libs: " -lm", label: "gcc 15.2" },
+    cpp: { id: "g152",  lang: "c++", std: "c++20", libs: "",     label: "g++ 15.2" }
+  };
   const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
+
+  function toolchain(cfg) {
+    const tc = TOOLCHAINS[(cfg && cfg.lang) || "c"] || TOOLCHAINS.c;
+    return { ...tc, std: (cfg && cfg.std) || tc.std };
+  }
+  const cfgOf = (el) => ({ lang: el.dataset.lang || "c", std: el.dataset.std || "" });
 
   const joinLines = (arr) => (arr || []).map((l) => l.text).join("\n").replace(ANSI, "");
 
-  async function ceRequest(body) {
+  async function ceRequest(body, compilerId = "cg152") {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25000);
     try {
-      const res = await fetch(CE_URL, {
+      const res = await fetch("https://godbolt.org/api/compiler/" + compilerId + "/compile", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(body),
@@ -208,17 +218,18 @@
   }
 
   /** Compile + run. Returns {out, err, exitCode, compileError}. */
-  async function runC(source, opt = "-O0", stdin = "") {
+  async function runC(source, opt = "-O0", stdin = "", cfg = null) {
+    const tc = toolchain(cfg);
     const data = await ceRequest({
-      source, lang: "c", allowStoreCodeDebug: false,
+      source, lang: tc.lang, allowStoreCodeDebug: false,
       options: {
-        userArguments: opt + " " + BASE_FLAGS,
+        userArguments: opt + " -std=" + tc.std + " -Wall -Wextra -fdiagnostics-color=never" + tc.libs,
         executeParameters: { args: [], stdin },
         compilerOptions: { executorRequest: true },
         filters: { execute: true },
         tools: [], libraries: []
       }
-    });
+    }, tc.id);
     const build = data.buildResult || {};
     const buildErr = joinLines(build.stderr).replace(/<source>/g, "main.c");
     if (!data.didExecute) {
@@ -230,16 +241,17 @@
   }
 
   /** Compile to Intel-syntax assembly. Returns {asm, err}. */
-  async function compileAsm(source, opt = "-O0") {
+  async function compileAsm(source, opt = "-O0", cfg = null) {
+    const tc = toolchain(cfg);
     const data = await ceRequest({
-      source, lang: "c", allowStoreCodeDebug: false,
+      source, lang: tc.lang, allowStoreCodeDebug: false,
       options: {
-        userArguments: opt + " -std=c17 -fdiagnostics-color=never -fno-asynchronous-unwind-tables",
+        userArguments: opt + " -std=" + tc.std + " -fdiagnostics-color=never -fno-asynchronous-unwind-tables",
         compilerOptions: {},
         filters: { intel: true, directives: true, commentOnly: true, labels: true, libraryCode: true, demangle: true },
         tools: [], libraries: []
       }
-    });
+    }, tc.id);
     const asm = (data.asm || []).map((l) => l.text).join("\n");
     const err = data.code !== 0 ? joinLines(data.stderr).replace(/<source>/g, "main.c") : "";
     return { asm, err };
@@ -297,14 +309,14 @@
         btn.textContent = "⏳";
         out.hidden = false;
         const p = outPanel(out);
-        p.title.textContent = "OUTPUT · gcc 15.2 x86-64 Linux " + opt;
+        p.title.textContent = "OUTPUT · " + toolchain(cfgOf(block)).label + " x86-64 Linux " + opt;
         p.pre.classList.remove("err", "warn");
         p.pre.textContent = "⏳ بيعمل compile ويشغّل على Compiler Explorer…";
         p.time.textContent = "";
         p.exit.textContent = "";
         const started = performance.now();
         try {
-          const result = await runC(codeEl.textContent, opt);
+          const result = await runC(codeEl.textContent, opt, "", cfgOf(block));
           renderRunResult(p.pre, result);
           if (result.exitCode !== null && result.exitCode !== undefined) p.exit.textContent = "exit code: " + result.exitCode;
           p.time.textContent = "⏱ " + ((performance.now() - started) / 1000).toFixed(2) + "s";
@@ -334,7 +346,7 @@
     panel = document.createElement("div");
     panel.className = "asm-panel";
     panel.innerHTML =
-      '<div class="asm-head"><span class="asm-title">⚙ Assembly · x86-64 gcc 15.2 · Intel syntax</span>' +
+      '<div class="asm-head"><span class="asm-title">⚙ Assembly · x86-64 ' + toolchain(cfgOf(host)).label + ' · Intel syntax</span>' +
       '<div class="opt-switch" role="group" aria-label="مستوى الـ optimization">' +
       '<button type="button" data-opt="-O0" class="on">-O0</button>' +
       '<button type="button" data-opt="-O1">-O1</button>' +
@@ -348,7 +360,7 @@
       $$(".opt-switch button", panel).forEach((b) => b.classList.toggle("on", b.dataset.opt === opt));
       codeEl.textContent = "⏳ بيعمل compile لـ " + opt + "…";
       try {
-        const r = await compileAsm(getSource(), opt);
+        const r = await compileAsm(getSource(), opt, cfgOf(host));
         if (r.err) { codeEl.textContent = r.err; return; }
         codeEl.innerHTML = highlightAsm(r.asm || "(مفيش كود)");
       } catch (e) {
@@ -642,7 +654,7 @@
         state.code[id] = editor.value;
         saveState();
         try {
-          const result = await runC(editor.value, "-O0", stdin);
+          const result = await runC(editor.value, "-O0", stdin, cfgOf(challenge));
           if (result.compileError) {
             renderRunResult(outPre, result);
             setStatus("❌ الكود مش بيعمل compile — اقرأ رسالة الـ compiler", "fail");

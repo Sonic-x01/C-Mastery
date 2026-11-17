@@ -270,6 +270,32 @@ int main(void) {
         </c-example>
         <div class="callout re"><span class="ci">🔬</span><div><strong>Ransomware = loop على CreateFile/ReadFile/WriteFile</strong><p>الـ ransomware بيمشي على الملفات بـ <code>FindFirstFileW</code>/<code>FindNextFileW</code>، يفتح كل واحد، يقراه، يشفره، يكتبه، ويغير امتداده بـ <code>MoveFileW</code>. لما تشوف الـ APIs دي في loop واحد مع crypto (<code>BCryptEncrypt</code> أو AES S-Box) — عرفت العيلة. ولاحظ: <code>CreateFile</code> لما تفشل بترجع <code>INVALID_HANDLE_VALUE</code> (= -1) مش <code>NULL</code> — في الـ asm: <code>cmp rax, 0FFFFFFFFFFFFFFFFh</code>.</p></div></div>
 
+        <h3 class="sub">errno و perror و strerror: ليه فشلت؟ <span class="tag">error handling</span></h3>
+        <p>أغلب دوال المكتبة لما تفشل بترجع قيمة خاصة (<code>NULL</code> أو <code>-1</code>) وبتحط <b>السبب</b> في متغير اسمه <code>errno</code> (من <code>&lt;errno.h&gt;</code>). <code>strerror(errno)</code> بتحوله لنص، و<code>perror("msg")</code> بتطبع <code>msg: السبب</code> على الـ stderr. قاعدتين: <b>اقرا <code>errno</code> فورًا</b> بعد الفشل (أي نداء تاني ممكن يغيّره)، و<code>errno</code> مش بيتصفّر لوحده لما الدالة تنجح.</p>
+        <c-example file="errno.c">
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+int main(void) {
+    FILE *f = fopen("/no/such/dir/config.bin", "rb");
+    if (f == NULL) {
+        int err = errno;                       /* save it FIRST */
+        printf("fopen failed: errno = %d (%s)\n", err, strerror(err));
+        printf("is it ENOENT? %s\n", err == ENOENT ? "yes" : "no");
+        perror("perror says");                 /* goes to stderr */
+    }
+
+    errno = 0;                                 /* strtol only SETS errno on error */
+    long v = strtol("99999999999999999999", NULL, 10);
+    if (errno == ERANGE)
+        printf("strtol overflow: clamped to %ld, errno = ERANGE\n", v);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong><code>errno</code> و <code>GetLastError</code> في الـ disassembly</strong><p><code>errno</code> مش متغير global عادي: لكل thread نسخة (TLS، المرحلة 18)، فعلى Linux هتلاقيه <code>call __errno_location</code> ← <code>mov eax, [rax]</code>. على Windows المقابل <code>GetLastError()</code>، وهي بتقرا <code>TEB-&gt;LastErrorValue</code> (على x64: <code>gs:[68h]</code>). لما تشوف <code>cmp eax, 0B7h</code> (183 = <code>ERROR_ALREADY_EXISTS</code>) بعد <code>CreateMutexW</code> أو <code>cmp eax, 2</code> (<code>ERROR_FILE_NOT_FOUND</code>) بعد <code>CreateFileW</code>، البرنامج بيتفرع حسب سبب الفشل.</p></div></div>
+
         <div class="exercises">
           <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 12</h3></div>
 
@@ -418,5 +444,15 @@ int main(void) {
 }
             </solution>
           </challenge>
+
+          <quiz id="s12-q6" answer="1">
+            <q>الكود ده فيه مشكلة: <code>if (!fopen(path, "rb")) { log_msg("failed"); printf("%s\n", strerror(errno)); }</code>. إيه هي؟</q>
+            <o><code>strerror</code> مش thread-safe</o>
+            <o><code>log_msg</code> ممكن تغيّر <code>errno</code> قبل ما نقراه، فالسبب المطبوع ممكن يبقى غلط. احفظ <code>errno</code> في متغير فورًا</o>
+            <o><code>fopen</code> مش بتغيّر <code>errno</code></o>
+            <o>مفيش مشكلة</o>
+            <good>أي نداء لدالة مكتبة (حتى <code>printf</code> جوه <code>log_msg</code>) ممكن يغيّر <code>errno</code>. <code>int err = errno;</code> أول سطر.</good>
+            <bad>إيه اللي ممكن يحصل لـ <code>errno</code> جوه <code>log_msg</code>؟</bad>
+          </quiz>
         </div>
       </section>

@@ -209,8 +209,41 @@ int main(void) {
         </c-example>
         <div class="callout re"><span class="ci">🔬</span><div><strong>أداة strings لازم تدور على الاتنين</strong><p><code>strings</code> العادية بتلاقي ASCII بس. على Windows malware استخدم <code>strings -el</code> (Linux) أو <b>FLOSS</b> اللي بيلاقي ASCII وUTF-16LE والـ stack strings والـ strings اللي بتتفك وقت التشغيل. لما تشوف في hex editor حروف بينها أصفار <code>h.t.t.p.:././</code> — دي UTF-16.</p></div></div>
 
+        <h3 class="sub">Variable-Length Arrays: حجم بيتحدد وقت التشغيل <span class="tag">VLA · alloca</span></h3>
+        <p>من C99 تقدر تعمل array محلي حجمه <b>متغير</b> (<code>int tmp[n];</code>). الـ array ده على الـ <b>stack</b>، والـ compiler بيحسب حجمه وقت التشغيل، وحتى <code>sizeof</code> عليه بيتحسب وقت التشغيل.</p>
+        <c-example file="vla.c">
+#include <stdio.h>
+
+static long sum_squares(int n) {
+    int tmp[n];                          /* VLA: size known only at run time */
+    for (int i = 0; i < n; i++) tmp[i] = i * i;
+    long s = 0;
+    for (int i = 0; i < n; i++) s += tmp[i];
+    printf("  n=%d -> sizeof tmp = %zu bytes (computed at run time)\n", n, sizeof tmp);
+    return s;
+}
+
+int main(void) {
+    printf("sum = %ld\n", sum_squares(5));
+    printf("sum = %ld\n", sum_squares(100));
+    return 0;
+}
+        </c-example>
+        <div class="callout danger"><span class="ci">💥</span><div><strong>ليه أغلب المشاريع بتمنع الـ VLAs</strong><p>لو <code>n</code> جاي من المستخدم أو من الشبكة: قيمة كبيرة = الـ stack يتخطى حدوده (<b>stack clash</b>، ممكن يكتب فوق الـ heap)، وقيمة سالبة أو صفر = UB. مفيش أي طريقة تعرف إن الحجز فشل. ونفس الكلام لـ <code>alloca(n)</code>. الـ VLAs كمان <b>optional</b> من C11، وMSVC مش بيدعمها خالص. للأحجام المتغيرة استخدم <code>malloc</code> مع check.</p></div></div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>شكل VLA / alloca في الـ Assembly</strong><p>بدل <code>sub rsp, 40h</code> الثابتة في أول الدالة، هتلاقي <code>sub rsp, rax</code> بقيمة محسوبة في <b>نص</b> الدالة، وغالبًا معاها <code>and rsp, 0FFFFFFFFFFFFFFF0h</code> (alignment لـ 16). وعلى Windows أي frame أكبر من page (4KB) بيعدي على <code>__chkstk</code> (أو <code>___chkstk_ms</code> في MinGW) اللي بيلمس الـ stack page page. متخافش منها، دي مش anti-debug.</p></div></div>
+
         <div class="exercises">
           <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 06</h3></div>
+
+          <quiz id="s06-q7" answer="0">
+            <q>دالة بتقرا <code>len</code> من packet وتعمل <code>char buf[len];</code> وتنسخ فيه. إيه المشكلة الأساسية؟</q>
+            <o><code>len</code> جاي من المهاجم: قيمة ضخمة بتخلي الـ stack يعدي حدوده (stack clash)، وقيمة 0 أو سالبة UB، ومفيش طريقة تعرف إن الحجز فشل</o>
+            <o>مفيش مشكلة، الـ VLA آمنة</o>
+            <o>الكود مش هيعمل compile في C</o>
+            <o>الـ VLA بتتحجز في الـ heap فهتعمل memory leak</o>
+            <good>الـ VLA على الـ stack ومفيش error handling. استخدم <code>malloc</code> مع حد أقصى منطقي.</good>
+            <bad>الـ VLA بتتحجز فين؟ وإيه اللي يحصل لو حجمها 2GB؟</bad>
+          </quiz>
 
           <quiz id="s06-q1" answer="1">
             <q>قيمة <code>sizeof("ABC")</code>؟</q>
