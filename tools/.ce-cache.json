@@ -1,0 +1,986 @@
+{
+ "00b6e8685adf1b512603aaabcdae5903fba4760169b7e0ae0efcd72ba164ec7c": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "#1 key=0x4B score=120  http://198.51.100.23:8080/panel/gate.php\n#2 key=0x02 score= 40  !==9sffxpqg|xgxyyg{zsqyqyf9(',%f.(=,g9!9\n#3 key=0x03 score= 40   <<8rggyqpf}yfyxxfz{rpxpxg8)&-$g/)<-f8 8",
+  "timedOut": false
+ },
+ "039f218b66babc74fc2d7a8d2797f154bb8edc3202bd59a2573710ecffe6b1e4": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "apis[0] = CreateFileW  (first char 'C')\napis[1] = WriteFile    (first char 'W')\napis[2] = CloseHandle  (first char 'C')\n(*row)[2] = 7\nsizeof apis = 24 (3 pointers), sizeof *row = 16 (4 ints)",
+  "timedOut": false
+ },
+ "06e8cb4ac5fc39f1605015eb80337ef861004c9d8175d27cf451a34863dba746": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "GetTickCount",
+  "timedOut": false
+ },
+ "078a459ae37d92d9674526bfa7b23b43dce255cca9033af600bf510fc9a7a2a0": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "63 7C 77 7B \nF2 6B 6F C5 \n30 01 67 2B \nsbox[1][2] = 0x6F = flat[1*4+2] = 0x6F",
+  "timedOut": false
+ },
+ "0ebc515e8ad20d64c8335cc44fbc311346cde3bf974c9aea851ff2199d268553": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "refused: 9223372036854775807 * 4 overflows",
+  "stdout": "1000 x 16      -> allocated\nhuge x 4       -> NULL\n32-bit 0x40000001 * 4 = 0x4 (tiny!)",
+  "timedOut": false
+ },
+ "1653b16dbb01218c5330133ff05962ec9b4c39570ebb656c1f8b7aed52478d62": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "14 bytes: 63 00 6D 00 64 00 2E 00 65 00 78 00 65 00\nback: cmd.exe",
+  "timedOut": false
+ },
+ "1d0cf5542b6a835bfeb7368ca5d189141cfe6f338eabf28a97a22b6e22e2aedd": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "truncate 0x12345678 -> 0x78\nsign-extend 0xF0 -> 0xFFFFFFF0 (-16)\nzero-extend 0xF0 -> 0x000000F0 (240)\n(int)3.99 = 3   (truncates toward zero)\n(int)-3.99 = -3\n7 / 2 = 3, 7 / 2.0 = 3.5, 7 % 2 = 1, -7 / 2 = -3, -7 % 2 = -1",
+  "timedOut": false
+ },
+ "1da1e5b66237fd129d8cbad9828461728c73868f59b481704941b39af41d3583": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "0x0000444C\n0x00000000\n0x00000000",
+  "timedOut": false
+ },
+ "1eb8dd921399a918a1858e7109b9b6838935c7529c3e235aaebe6e0070c7d4bd": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "Hello, Reverser!",
+  "timedOut": false
+ },
+ "2033bd02bf847b24c62abcea2173f59cecb5e4860c07ddf15bbebb64a5211c0d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "caps=0x0D\nKEYLOG\nPERSIST\nSPREAD",
+  "timedOut": false
+ },
+ "253049cd22beaf345a16fce1311fcbf0982c632e7924edd97dce091ead948c3b": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "imports: 9\n[+] process injection\n[+] persistence via Run key\n[+] anti-debugging",
+  "timedOut": false
+ },
+ "264eacd062b91ecf57660e1b30d8775e5416006f23f786dba2b9728da2260c13": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "PE executable\nELF executable\nZIP archive (or DOCX/JAR/APK)\nunknown",
+  "timedOut": false
+ },
+ "265579703961f7e092dce21471f8e8d17be2ddffcf0ab75874e53a1c25017860": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "47 / 5 -> q=9 r=2\n-47 / 5 -> q=-9 r=-2",
+  "timedOut": false
+ },
+ "29496f67563497a2f4e99b8c1f82a17629848f509372bb9aed9d9987149ca162": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "encoded: 39 37 3E 74 3F 22 3F 7A 75 39 7A 2D 32 35 3B 37 33 \ndecoded: cmd.exe /c whoami\nrecovered key: 0x5A",
+  "timedOut": false
+ },
+ "2b7ef902669e8eac96653a9ddf91c9d216d3faa7c0569bb9cafc0e1d9458bd5b": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "path   : C:\\Users\\Public\\svc.exe\nhost+  : update.example.com/gate.php?id=42\nquery  : ?id=42\nstrcmp : 0 (0 means equal)\nprefix : starts with http\nstrncpy: ABC\nmemcmp : 0",
+  "timedOut": false
+ },
+ "2d45572acea25e54a0ec4b4d821276f7847cbefe6dbba6449b6851e19290b6fb": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "0x01: 10.0.0.7\n0x02: 8443\n0x05: Mozilla/5.0\ntruncated at offset 29",
+  "timedOut": false
+ },
+ "333f11577f6de111d6a8e0a7e6a525254f5e1fbc5085627427ef6d8e90089e0c": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "bad    : size 24 | a@0 b@8 c@16\ngood   : size 16 | b@0 a@8 c@9\npacked : size 10 | a@0 b@1 c@9",
+  "timedOut": false
+ },
+ "37e6ca9e5196674c2a56f0a23d4f3d0cf547361c87c9b96a948dc6e0e2815afc": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "https://update.windows-cdn.test",
+  "timedOut": false
+ },
+ "394aecd363515ab3b2e99f34093e363a195e6e15e24d2ef4c1e4bbc52bb50963": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "port -> 8443\nsleep -> 60\nproxy -> (missing)\nhost -> 10.1",
+  "timedOut": false
+ },
+ "3ab503e9723637c65c3ae7e1e56102d0bc97d73b1846f50d39a70f0afb4ead45": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "1\n2\nHASH\n4\nDUMP\nHASH\n7\n8\nHASH\nDUMP\n11\nHASH\n13\n14\nSCAN",
+  "timedOut": false
+ },
+ "3ce7ba32aca9e23b0bb344f173cea1266a526a02bad849a48a578878cd743380": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "  echo: hello\n  sleeping 30 s\n  unknown command 0x55\n  exiting",
+  "timedOut": false
+ },
+ "3cfad98046dce8581e51b7d31b3989d766e1911e5d446f78a2dca1f6c9bff0b0": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "len(\"kernel32.dll\") = 12\ncmp(abc, abc) = 0\ncmp(abc, abd) < 0\ncmp(b, a) > 0",
+  "timedOut": false
+ },
+ "401847f5affb5d6edd5bd6425e08117261a23632ce16aae72f88db87d9a5b635": {
+  "build": "",
+  "code": 3,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "Something went wrong, returning 3",
+  "timedOut": false
+ },
+ "41567e0126ad8cdab179b326013eb3342fdd65260d1b7cc6f6c40d0af4137e29": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "36\n0",
+  "timedOut": false
+ },
+ "4283029645ac5d0e004f17be1919fab267f5da6bd5b86601ce43328a9158eb03": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "4096 1337 772 640 4 0",
+  "timedOut": false
+ },
+ "4334e7002d7c601c90c90606f2ca5f83486fa0390cf8634ed84aa2bc0bf55697": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "BEACON INTERVAL\nORNPBA VAGREINY\nchosen('A') = N\ncsrss explorer lsass svchost ",
+  "timedOut": false
+ },
+ "43496ccea7e096147c4fb98cbc75172cda17965cf619a98a6578bf2986ea36a3": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "platform: Linux\narch: x86-64\ncompiled by GCC 15.2, C standard 201710",
+  "timedOut": false
+ },
+ "4434c96a4f9afa1c5f8e3871a5324a15fb36547f59baf35cbe1799514ea03824": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "00 00 00 00 00 00 F0 3F\n88 77 66 55 44 33 22 11\nx=2 y=1",
+  "timedOut": false
+ },
+ "4590db5b4831fddffedbd8b3b51d89a934bef7d79563252ac18b0ace26021ba4": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "sizeof(Record) = 4 (header only)\ntype=3 length=6 data=whoami",
+  "timedOut": false
+ },
+ "4595b9af53dc272434893659ed3c2b2d72ae27b6eb6be36cd24a38689df6e73a": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "u16 @0 = 0x5A4D\nu32 @4 = 0x00004550",
+  "timedOut": false
+ },
+ "4640de46a5bad2b6b927e3c1d84e150b201b80bc1c9f6c6435f20097c43a2859": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "..AAAAA.....",
+  "timedOut": false
+ },
+ "4798dd4c3a6b75a0e1a38d959e461a1a6e1ff76d0f95937f33fd6b2db67e2d14": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "int8 -1 as uint8   = 255 (0xFF)\nint32 -2 in hex    = 0xFFFFFFFE\n~5 + 1             = -5\n0xFFFFFFF6 signed  = -10",
+  "timedOut": false
+ },
+ "4906bc3e56557d5cf5fc91cbe78a5e05f6faf321f7521e739863b4e33420f8f7": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "copied 7: truncat",
+  "timedOut": false
+ },
+ "49f0c2fad380428ac1866dfda97db19aa45df9d134d0c972b30ea23f68075009": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "copy_bad  check with len=-1 : PASSED (bug!)\ncopy_good check with len=-1 : rejected\n(size_t)-1 = 18446744073709551615",
+  "timedOut": false
+ },
+ "4a11a07187211e92644f022bcaa3e9b6fcc7cf07767ca1b7a07bfd15c0042a94": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "a=5 b=7 i=7\nx=5\n0 && check -> 0\n1 || check -> 1\n  check(right) called\n1 && check -> 0\n42 is even",
+  "timedOut": false
+ },
+ "4aad46c917a4353d13e3c9229e88c2f677de166c1d2b5a794dcab24607d73411": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "sizeof(wchar_t) here = 4 (Windows: 2)\nwcslen = 3 chars\nUTF-16LE bytes: 63 00 6D 00 64 00 00 00 \ndecoded: cmd (len 3)",
+  "timedOut": false
+ },
+ "4cc3a4928e74fcac3cb5890175d91cd4375bf23be841c6febd7a6458dbf77a43": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "DOS_HEADER           64 bytes, e_lfanew @ 0x3C\nFILE_HEADER          20 bytes\nOPTIONAL_HEADER64   240 bytes, EntryPoint @ 16, ImageBase @ 24, DataDirectory @ 112\nSECTION_HEADER       40 bytes\nNT headers total    264 bytes (4 + 20 + 240)",
+  "timedOut": false
+ },
+ "52f1f805c180428cd39c8a551039a4cc523acf063e3050835baa1c229bd3063a": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "char       : 1\nshort      : 2\nint        : 4\nlong       : 8   <- 4 on Windows x64!\nlong long  : 8\npointer    : 8\nfloat      : 4\ndouble     : 8\nuint8_t    : 1\nuint32_t   : 4\nuint64_t   : 8",
+  "timedOut": false
+ },
+ "57c059d0699aae6488c629a2d67b5743cf0775ff23833184ec31ff99f62a1a8a": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "1. dropper.exe (pid 4021) score 95\n2. svch0st.exe (pid 3310) score 88\n3. rundll32.exe (pid 2740) score 61",
+  "timedOut": false
+ },
+ "588053b784d8df748586c45fc5a42764ec0c48a42fe61681a678d6eed614774d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "        100 + 200 = 300\n 2147483647 +  1 -> overflow, refused\n-2147483648 + -1 -> overflow, refused\n         -5 +  3 = -2\n__builtin_add_overflow caught it too",
+  "timedOut": false
+ },
+ "5b1b6fdbc8fd8dba5ee8d15cfabb13d1942e9226dd51ff2cb0043f5d178fbf31": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "name = Emotet | sizeof = 7 | strlen = 6\nlit  = TrickBot | sizeof(ptr) = 8 | strlen = 8\nbuf  = abc | sizeof = 16 | strlen = 3\nmodified: emotet\nbytes of \"Hi\": 48 69 00 ",
+  "timedOut": false
+ },
+ "5f354222c782f4680e762bea014683d5032526af92c4df30fb5b5176cc3dd0c9": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "'A' = 65 = 0x41\n'A' + 2 = 'C'\n'7' - '0' = 7   (digit char -> number)\nlower: 'a'  ('A' | 0x20)\nupper: 'A'  ('a' & ~0x20)\n\\n=10 \\t=9 \\0=0 \\x41='A'",
+  "timedOut": false
+ },
+ "62e2cb9f712c332f9d4fa7154bfdbcf06ca1f172e5fedd3b36c63ef9f61e71b4": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "ids has 4 elements, 16 bytes\nports[0] = 80\nports[1] = 443\nports[2] = 8080\nports[3] = 0\nports[4] = 0\nports[3] now = 4444, zeros[99] = 0\nids[2] = 9, *(ids + 2) = 9, 2[ids] = 9",
+  "timedOut": false
+ },
+ "666da8eeecdd80d7d98a926f3e8ae5af9bd0379464283ba7613b424131774c75": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "magic=0xAA len=3 cmd=GET\nremaining bytes: 3 -> 01 02 55",
+  "timedOut": false
+ },
+ "66cb131ce0270ac8975caca6fcaa65915c31d73d92ef2917e461c4b52adcdc01": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "disassembly:\n  00: PUSH 0x65\n  02: PUSH 0x33\n  04: XOR\n  05: EMIT\n  06: PUSH 0x7E\n  08: PUSH 0x33\n  0a: XOR\n  0b: EMIT\n  0c: PUSH 0x12\n  0e: PUSH 0x33\n  10: XOR\n  11: EMIT\n  12: PUSH 0x03\n  14: PUSH 0x2A\n  16: EMIT\n  17: DEC\n  18: JNZ  -6 -> 14\n  1a: POP\n  1b: HALT\nexecution: VM!***",
+  "timedOut": false
+ },
+ "6719d424aa05c367e3d49dc3563d38b44bc6ab703b05d7a24a494cbffada25b2": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "evil-c2.example",
+  "timedOut": false
+ },
+ "67d34ed41cf56a1bd063f22650a22974de9f1c706cc75ca6d6833f03fbbabcbd": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "reverser  -> CM-22D1330B : ACCEPTED\nanalyst   -> CM-98EA3EAE : ACCEPTED\nabc       -> CM-E4B2299E : REJECTED\nwrong     -> CM-00000000 : REJECTED",
+  "timedOut": false
+ },
+ "680313914333c8ede642cd38f286e94e8c51871b27a5350536ca01f62ae2a22d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "as bytes : 44 43 42 41\nas chars : DCBA\nlow u16  : 0x4344\npi + 1 moves 4 bytes, pc + 1 moves 1 byte\n*(pi + 2) = 0x33333333",
+  "timedOut": false
+ },
+ "68a28a30470a664eb701c639eeb7ba8cc23b7e50bc7763ed6cbe04f71112ebac": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "Connect to http://c2.lan:8080",
+  "timedOut": false
+ },
+ "68be9b6f453913e7f2081eca3dd47974e22859c2a909bcaf53ac8de04d59f5af": {
+  "build": "<source>: In function 'try_reset':\n<source>:3:27: warning: parameter 'x' set but not used [-Wunused-but-set-parameter]\n    3 | static void try_reset(int x)    { x = 0; }          /* modifies its copy only */\n      |                       ~~~~^",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "after try_reset : 99\nafter real_reset: 0\nafter swap: p=2 q=1",
+  "timedOut": false
+ },
+ "69d2b4ded1f0b80c144fb5c303c6860c7a0c42516a5157de1058a4c40abf45e4": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "0004: kernel32.dll\n0015: VirtualAlloc\n0025: http://evil.test/a",
+  "timedOut": false
+ },
+ "6b2fc1c616ffb381c4340f6b43da3f1cb22a3a4e81ef076ca859fe55c2e32c5d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": ".text    R-X\n.rdata   R--\n.data    RW-\n.packed  RWX  SUSPICIOUS",
+  "timedOut": false
+ },
+ "6e425a5307b54246b7baeb4365564740abc2a59f1b0ddb7e525003bf90524b48": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "         0 / 10 =         0   magic =         0   OK\n         9 / 10 =         0   magic =         0   OK\n        10 / 10 =         1   magic =         1   OK\n        99 / 10 =         9   magic =         9   OK\n     12345 / 10 =      1234   magic =      1234   OK\n4294967295 / 10 = 429496729   magic = 429496729   OK\n2^35 / 0xCCCCCCCD = 10.000000",
+  "timedOut": false
+ },
+ "7262fd21745c78c46df00f71ea7aa345e33433360d65ca1eebd64c3e28ea321b": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "  grew to 4\n  grew to 8\n  grew to 16\nlen=10 cap=16 last=100",
+  "timedOut": false
+ },
+ "757d4471dd92f6d5faac440e0047d0afb74b9ccc05ddc3c7315dabff7641979d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "good file:\n  record 0: type=1 len=4 value=host\n  record 1: type=2 len=3 value=443\nevil file:\n  record 0: TRUNCATED (claims 65535 bytes)",
+  "timedOut": false
+ },
+ "76dc6af4edde537b4d3d1781d0979105e3c3189065604ba9a178dad2b5af21c4": {
+  "build": "",
+  "code": 1,
+  "didExecute": true,
+  "stderr": "usage: tool <file>",
+  "stdout": "argc = 1\nargv[0] = <program path>",
+  "timedOut": false
+ },
+ "789e82047f56e1cca4847026632c53ea4543ba7a0612432e43d08a12669844ba": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "3^13 mod 1000 = 323\n7^128 mod 13 = 3\n2^64 mod 1000000007 = 582344008",
+  "timedOut": false
+ },
+ "7bd58cd69b22f7563dff0bf82dc1368a13bf26c52fbf410b3d57d247cb4e000c": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "cmd 0 -> UNKNOWN\ncmd 1 -> BEACON\ncmd 2 -> SHELL\ncmd 3 -> UPLOAD\ncmd 4 -> DOWNLOAD\ncmd 5 -> SLEEP\ncmd 6 -> UNKNOWN\n  enable screenshots\n  enable beacon",
+  "timedOut": false
+ },
+ "8038752bd962a94276acc4a4dd2509977fcaac8241775f46731b93fb688aae85": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "key found: 0xC3",
+  "timedOut": false
+ },
+ "8072a3c59cdc96aa948c15e2533ae92534ddeb7d9b1e43ff3ae434e881b848f1": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "hello world\nversion 3.7\nbeacon_count = 3\n0x02 -> CMD_SHELL, 0x7F -> CMD_EXIT, 0x10 -> UNKNOWN",
+  "timedOut": false
+ },
+ "816487dae87e7b9b8669de184a5b3054835f355a229e5f3a9e7faba73821cc1d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "id = 1000\nid = 1001\nid = 1002\ninner x = 2\nouter x = 1, total_calls = 3",
+  "timedOut": false
+ },
+ "827faa973cb043a326b5be1d394b5ece58f062c5e739884fef1d138e252434d8": {
+  "build": "<source>: In function 'main':\n<source>:7:15: warning: suggest parentheses around comparison in operand of '&' [-Wparentheses]\n    7 |     if (flags & 0x4 == 0x4)\n      |               ^\n<source>:15:55: warning: suggest parentheses around '+' inside '<<' [-Wparentheses]\n   15 |     printf(\"1 << 2 + 1 = %d (shift by 3, not 5)\\n\", 1 << 2 + 1);\n      |                                                       ^~",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "buggy check: NOT set (wrong!)\nfixed check: set\n1 << 2 + 1 = 8 (shift by 3, not 5)",
+  "timedOut": false
+ },
+ "86ea1616cdb9e23cb2406682aaafbf6ba5f1b129830217d6f0e9e2329067fca5": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "popcount(0x00000000) = 0\npopcount(0x000000FF) = 8\npopcount(0xDEADBEEF) = 24\npopcount(0xFFFFFFFF) = 32",
+  "timedOut": false
+ },
+ "88b1ee8b97b919ae73c25e983675ea14b6ce3d8ce3532ed60f9261802db380e9": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "IOC 1: 185.220.101.4\nIOC 2: evil.example\nIOC 3: update-check.test",
+  "timedOut": false
+ },
+ "8c4a7c4ba7e3b1e59bfc85005a0cdf06bc273d613504befe1b766c28764d36b9": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "rol32(0x80000001, 1) = 0x00000003\nror32(0x80000001, 1) = 0xC0000000\nror13(\"LoadLibraryA\")   = 0xEC0E4E8E\nror13(\"GetProcAddress\") = 0x7C0DFCAA",
+  "timedOut": false
+ },
+ "8c5cbb89f621777a31b80920e68b7b55074fc42c55f80a9584db1c6ac213107a": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "size=19 sum=1811 xor=0x0B",
+  "timedOut": false
+ },
+ "8fba50ceaea2ae4345cbc592ea2af94e810ee1c2fd116d8d6ccce49d71144b62": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "00000000  4d 5a 90 00 03 00 00 00  04 00 00 00 ff ff 00 00  |MZ..............|\n00000010  54 68 69 73 20 70 72 6f  67 72 61 6d 20 63 61 6e  |This program can|\n00000020  6e 6f 74 20 62 65 20 72  75 6e 20 69 6e 20 44 4f  |not be run in DO|\n00000030  53 20 6d 6f 64 65 2e                              |S mode.|",
+  "timedOut": false
+ },
+ "9172c8274fdd849d510eac82d22b611074da958b1c0b3d0edd7960b7fc1452fd": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "min=-3 max=12",
+  "timedOut": false
+ },
+ "962a3c7bbf79cac58b19ec5bc835b350d0f9c318004d9af003df219959dcb0aa": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "10.19045  -> major=10 minor=19045\ngarbage   -> error -2",
+  "timedOut": false
+ },
+ "96ea5471d0a439c6135f363d9f730dad9553722755c42359181589ad1cbb872f": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "C:\\Windows\\System32\\drivers\\etc\\hosts (37)",
+  "timedOut": false
+ },
+ "973a59466003c45d3438be329a9cd2d4dadff59db2f622c2563c54f55e6236b9": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "Analyst: Ahmed\nTarget: sample.exe\nProgress: 100%",
+  "timedOut": false
+ },
+ "99fe2c4d5bc9b5a2819a941442d2ec95e23a03aad70fccd3c1d04d4640d01f91": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "21468 9988 22117 3498 16927",
+  "timedOut": false
+ },
+ "9a0f54b8bebb752b4cf65294be0a1a34e842d94657e045e259ee0adda9dee377": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "signed   -16 >> 2 = -4 (0xFFFFFFFC)  arithmetic\nunsigned  u  >> 2 = 1073741820 (0x3FFFFFFC)  logical\n1 << 10 = 1024\n100 >> 3 = 12  (100 / 8)",
+  "timedOut": false
+ },
+ "9a5ccb06eb5d5ea3a15f669389615e1dc57284180a52d086e7103f89f6ccce89": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "match: GetProcAddress",
+  "timedOut": false
+ },
+ "9abf84fb08a819491fd2f694a73606d523cd24621fef934757077aa1c0fce93f": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "while n=3\nwhile n=2\nwhile n=1\nattempt 1\nattempt 2\nfor i=0\nfor i=3\nfor i=6\nfor i=9\nodd 1\nodd 3\nodd 5\nodd 7\nfound at r=2 c=1",
+  "timedOut": false
+ },
+ "9e0d2e9520b2616795f93d93645eae324df233f655414de9eff9d048f7cf53a6": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "wrote 10 bytes\nfile size = 10\nread 10 bytes: 4D 5A 90 00 03 00 00 00 DE AD\nbyte @8 = 0xDE",
+  "timedOut": false
+ },
+ "9e62e0b811fc530b45b3e287eb93b6e9ac4d2753187a03a609b0f7bf3c83fec9": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "RVA 0x1000 -> file offset 0x0400\nRVA 0x14F0 -> file offset 0x08F0\nRVA 0x3020 -> file offset 0x2020\nRVA 0x4010 -> file offset 0x2C10\n  (RVA 0x5004 is in .bss but has no file data)\nRVA 0x5004 -> not in file\nRVA 0x9000 -> not in file",
+  "timedOut": false
+ },
+ "a4bb1da6011a08c3bb6e3ba4b6eced384c094d5f7b6071fa4b17c45c8ba7570e": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "10 31 15\n0xDEADBEEFCAFEBABE\nZ 0 3 5",
+  "timedOut": false
+ },
+ "a8213d912fe0a865687920e74ff8426cf682897384f5b7edf3616526d0d24d6e": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "0x1000  ntdll.dll\n0x2000  kernel32.dll\n0x3000  user32.dll\noffsetof(MODULE, links) = 8",
+  "timedOut": false
+ },
+ "aa4c59765e360b822fd741591672e68ff150b710b36877f94816f3d59a756d27": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "Length=18 bytes (9 chars), MaximumLength=64\nas text: ntdll.dll\nsizeof(UNICODE_STRING) = 16 (2 + 2 + 4 padding + 8)",
+  "timedOut": false
+ },
+ "aa80521742e7a91b5210602b9e837aaa18cfacc044c91505c183fae6cbc4ff60": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "zeros   : 0.000 bits/byte\ntext    : 4.421 bits/byte\nrandom  : 7.950 bits/byte  <- looks packed / encrypted",
+  "timedOut": false
+ },
+ "ac1bb2da860e339ad041fbb81e8d018b067c98bac23ace3a82e22fdc0d36344f": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "value : 0x11223344\nbytes : 44 33 22 11\nMZ as uint16 = 0x5A4D",
+  "timedOut": false
+ },
+ "ac8cd6cef00d6c865a17e5c8098c66626e46890e3abceee7ff2e37c6f207b6b4": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "ping\nexec\nfile-op\nbad-cmd 0x42\nfile-op\nexit",
+  "timedOut": false
+ },
+ "ad3172c09ed36bf317bd5439ed15f5a984863c48bf0334de077f887d33ca381a": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "max(3, 9) = 9\nmax(-4, -12) = -4\nmax(7, 7) = 7",
+  "timedOut": false
+ },
+ "ae1501200da5f886844991680b9da037d8a072ce75bfbb6270be5405ec71304b": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "00000000  4d 5a 90 00 00 00 00 00  00 00 00 00 00 00 00 00  |MZ..............|\n00000010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|\n*\n00000040  54 68 69 73 20 70 72 6f  67 72 61 6d 20 63 61 6e  |This program can|\n00000050  6e 6f 74 20 62 65 20 72  75 6e 20 69 6e 20 44 4f  |not be run in DO|\n00000060  53 20 6d 6f 64 65 2e 0d  0a 24                    |S mode...$|\n0000006a",
+  "timedOut": false
+ },
+ "af5e9bc73d17d50336c6fa6af505d44db2952ce78b0fd6a29410e5c2ba2b78e9": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "score  97 -> malicious\nscore  63 -> suspicious\nscore  12 -> clean\nscore  -5 -> invalid\nx is false (0)",
+  "timedOut": false
+ },
+ "b136d9da24d5230a73299902befd5391d26ef6635c17dda63851c81749ce9142": {
+  "build": "<source>: In function 'show':\n<source>:4:63: warning: 'sizeof' on array function parameter 'arr' will return size of 'int *' [-Wsizeof-array-argument]\n    4 |     printf(\"inside : sizeof(arr) = %zu (a pointer!)\\n\", sizeof(arr));\n      |                                                               ^\n<source>:3:22: note: declared here\n    3 | static void show(int arr[], size_t n) {          /* int arr[] == int *arr here */\n      |                  ~~~~^~~~~",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "outside: sizeof(data) = 24\ninside : sizeof(arr) = 8 (a pointer!)\n4 8 15 16 23 42 ",
+  "timedOut": false
+ },
+ "b200c24915feb9dd19df4e5320def2ab75d5721a28998d24b0d70216ed654842": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "1000 * 16 = 16000\noverflow\n0 * 99 = 0",
+  "timedOut": false
+ },
+ "b4772221cf6867a51aa909f68a89246fff47f58eafc26993f12e06c2538880fc": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "op0(12, 5) = 17\nop1(12, 5) = 7\nop2(12, 5) = 60\nop3(12, 5) = 2\nop3(1, 0) = 0",
+  "timedOut": false
+ },
+ "b5687bde4828d9177161259aa33c641de2a63eb6ff2f0ba63f36b72fbb08c8a1": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "standard : http://example.test/gate.php\ncustom   : http://example.test/gate.php\ninvalid  : -1",
+  "timedOut": false
+ },
+ "b8670c980d02203b4e44c58c484821255995ff12dbd169ae9212dca6a79619b2": {
+  "build": "<source>: In function 'main':\n<source>:7:11: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]\n    7 |     if (a < b)\n      |           ^",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "-1 < 1u : FALSE!  (-1 became 4294967295)\nx + y as int = 300, stored in uchar = 44",
+  "timedOut": false
+ },
+ "b872d7fc0d4fe1299cc14cc31a23c98cb44d2aef0e8fd05dda5468e44812f88b": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "MEM_COMMIT|MEM_RESERVE = 0x3000\nhas COMMIT?  yes\nprotect 0x02:\nprotect 0x20: EXEC\nprotect 0x40: EXEC WRITE  <-- RWX, suspicious!",
+  "timedOut": false
+ },
+ "ba9fa911c9cbfbeb171910374d170197b9b6d781e8950b04affd071b9e713dd0": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "0 1 4 9 16 -1 -1 -1 -1 -1 \nheap string (11)",
+  "timedOut": false
+ },
+ "bbd38c7ba2deffce1fa579c1284c6f5dd6da8bca3e1a5a58bbee801c921c043a": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "12351\n9\n100",
+  "timedOut": false
+ },
+ "be593e9522fe79c43e4af5dacf96e24fe19bd8ee4517442c73baef0072cc0b1a": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "0x11223344 -> 0x44332211\n0xDEADBEEF -> 0xEFBEADDE",
+  "timedOut": false
+ },
+ "be8b2f1e938c07c1e5a0edc21eb843ee7a02094823301f77edb0d7dc0feabc12": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "ST_INIT=0 ST_CONNECT=1 ST_BEACON=10 ST_SLEEP=11 ST_EXIT=255\nperm=5 -> r-x\nsyn=1 ack=1 rst=0 sizeof=4",
+  "timedOut": false
+ },
+ "c12e6fc4549c3b23d3ac0803e818ddc010b28925aada468ae7c006da864345d8": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "BUF_SIZE=256 C2_PORT=443\nSQUARE_BAD(2+3) = 11   (expands to 2+3*2+3)\nSQUARE(2+3)     = 25\nMAX(i++,3) = 6, i is now 7 (not 6!)\nARRAY_LEN(ports) = 4",
+  "timedOut": false
+ },
+ "c3e222935b64359ede154c18976a6d83b582a04b79d59497e9034ab9e1b619f3": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "port=   -> 8443\nproxy=  -> not found",
+  "timedOut": false
+ },
+ "c7dc5df33a1c615907b97404ed888c426eba21d16229f80cb10e3dd08a31f0bb": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "10! = 3628800\ngcd(1071, 462) = 21\n  depth 1\n    depth 2\n      depth 3\n      unwind 3\n    unwind 2\n  unwind 1",
+  "timedOut": false
+ },
+ "c91c68cd4702b22a9f7cdea6171d867ca213f4e0050ba1e5ae24de6cadb03cb5": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "start        00000000  (0x00)\nset bit 3    00001000  (0x08)\nset 0,7      10001001  (0x89)\nclear bit 0  10001000  (0x88)\ntoggle 3     10000000  (0x80)\nbit 7 is ON\nlow nibble = 0x7, high nibble = 0xA",
+  "timedOut": false
+ },
+ "cb7e386c73cb5cfa81ce68420bf3d7266013f2017501108f2573d69f0364c95b": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "4 tokens\n[0] cmd.exe\n[1] /c\n[2] whoami\n[3] /all",
+  "timedOut": false
+ },
+ "cccf166de7c6ea4875730bd4475e18289c648c813d119b871adc3a1c53b3fbde": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "1.0f  -> 0x3F800000\n-2.5f -> 0xC0200000\n0.1 + 0.2 = 0.30000000000000004\n0.1 + 0.2 == 0.3 ? no",
+  "timedOut": false
+ },
+ "d0e388be92c86d17d17b9c9bdb646959018994b447363942b39a71d8f841decc": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "resolved -> square\nresult = 49\n0xDEADBEEF -> not found",
+  "timedOut": false
+ },
+ "d42f63eedf2fb275876a35eece17e21a3dcead788a82f1179d9f33b4729f4155": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "malware.exe   pid=4321  ppid=1200  [ELEVATED]\nexplorer.exe  pid=1200  ppid=900   \noriginal still: malware.exe, sizeof = 28",
+  "timedOut": false
+ },
+ "d65b76c0dcedd7d0274c90cfc2c05bd769d65f9cd24092333d760d9b10a953e3": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "Key     Plaintext       -> BBF316E8D940AF0AD3  | back: Plaintext\nWiki    pedia           -> 1021BF0420  | back: pedia\nSecret  Attack at dawn  -> 45A01F645FC35B383552544B9BF5  | back: Attack at dawn",
+  "timedOut": false
+ },
+ "da62042e5e3bc754e3cf476c24f3d9981da90bbdc6e8edcafbf0d1f434562391": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "uint8 250 + 10      = 4\nunsigned 0 - 1      = 4294967295\nINT_MAX             = 2147483647\nINT_MIN             = -2147483648\na + b would overflow -> refused",
+  "timedOut": false
+ },
+ "dc1c7da430deccb0d140f8350d1e8b681275ee67338d593f816ec71435983a98": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "code   (.text)  : 0x401146\nliteral(.rodata): 0x402004\nglobal (.data)  : 0x404028\nglobal (.bss)   : 0x40403c\nheap            : 0x34812a0\nstack           : 0x7ffd9a669264",
+  "timedOut": false
+ },
+ "dc4734050a27baf10f98b783f4cb612f3a8481f35cad048d564d8e985591a175": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "  work done\nrun ok   -> rc=0\nfail @1  -> rc=-1\nfail @2  -> rc=-1",
+  "timedOut": false
+ },
+ "e04354eab07034dada72ee2778797eba37b57a881e787a86d8112a43ce938f3d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "dec: 48879\nhex: beef\nHEX: 0x0000BEEF\noct: 137357",
+  "timedOut": false
+ },
+ "e1b5d484843eddf87644c3619efe422a5993995177ddb385b1e21d28ebde93ed": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "sum = 100\nsum = -6\nsum = 0",
+  "timedOut": false
+ },
+ "e1ddfbffe58cb8eddd8f7df6608bda1024054b1361f274a0257397d4af51996e": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "int      : 25\nunsigned : 3735928559\nhex      : deadbeef | DEADBEEF | 0xdeadbeef\npadded   : [00001337]\ndouble   : 3.141593 | 3.14 | 3.141593e+00\nchar     : A (code 65)\nstring   : Ghidra\nwidth    : [    Ghidra] [Ghidra    ]\npercent  : 100%",
+  "timedOut": false
+ },
+ "e2bfb7eb9ee127928f3b77118d1e3ae1f39efa64e38dae9eaae6bebf86dee238": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "x        = 10\n*p       = 10   (value at the address)\np == &x  ? yes\nsizeof p = 8  (any pointer on x64)\nx after *p = 99 -> 99\nx after **pp = 7 -> 7\n&x = 0x7fff9fe87a64",
+  "timedOut": false
+ },
+ "e39388045099b5f26bb43c078a48172c5af5d2a64c312af61c60994d4e6967b0": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "1 -> 2 -> 3 -> 4 -> 5\n5 -> 4 -> 3 -> 2 -> 1",
+  "timedOut": false
+ },
+ "e7f50ed130070cde2e47cac2fc2b88d21bcec28bbd1096452e7cd3cf32e6a713": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "[INFO] connected to 10.0.0.5:443\n[WARN] retry 2 of 5\nsum = 100",
+  "timedOut": false
+ },
+ "e7f6b43e2954c9cefacd97e86e82bc2c4ec4553c31e8c9a943d5e9daa2366ad2": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "size=12 magic=0xC0DEFACE ver=2 flags=0x81 cmd=0x0010 len=5\npayload=hello",
+  "timedOut": false
+ },
+ "e90b536e2137201426f5b2568df4d2f447efbcba5a11f92e6e3e508a85110d86": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "000002 A GetProcAddress\n000049 A kernel32.dll\n000012 W http://c2.test\n000037 W Software",
+  "timedOut": false
+ },
+ "e95e643c81629a5363bac15a93d722b1bdd37f751a1df9434714b92117950318": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "e_lfanew       : 0x80\nMachine        : 0x8664 (x64)\nSections       : 10\nCharacteristics: 0x022E EXECUTABLE\nMagic          : 0x20B (PE32+)\nEntryPoint RVA : 0x1400  -> VA 0x140001400\nImageBase      : 0x140000000\nSubsystem      : 3 (console)\nDllCharacter.  : 0x0160 HIGH_ENTROPY_VA DYNAMIC_BASE NX_COMPAT\nData directories:\n  [ 1] Import       RVA 0x08000 size 0x838\n  [ 2] Resource     RVA 0x0A000 size 0x4E8\n  [ 3] Exception    RVA 0x05000 size 0x204\n  [ 5] BaseReloc    RVA 0x0B000 size 0x60\n  [ 9] TLS          RVA 0x04040 size 0x28\n  [12] IAT          RVA 0x08250 size 0x188\nName      VirtAddr  VirtSize  RawPtr    RawSize   Perm\n.text     0x001000  0x001830  0x000400  0x001A00  R-X  <- entry point\n.data     0x003000  0x0000A0  0x001E00  0x000200  RW-\n.rdata    0x004000  0x000BB8  0x002000  0x000C00  R--\n.pdata    0x005000  0x000204  0x002C00  0x000400  R--\n.xdata    0x006000  0x000194  0x003000  0x000200  R--\n.bss      0x007000  0x000180  0x000000  0x000000  RW-\n.idata    0x008000  0x000838  0x003200  0x000A00  R--\n.tls      0x009000  0x000010  0x003C00  0x000200  RW-\n.rsrc     0x00A000  0x0004E8  0x003E00  0x000600  R--\n.reloc    0x00B000  0x000060  0x004400  0x000200  R--",
+  "timedOut": false
+ },
+ "ea38ac292f9ff57cbae2e444fadea97a40834ced2893a695daed1015e7eb4caa": {
+  "build": "<source>: In function 'main':\n<source>:4:40: error: expected ';' before 'return'\n    4 |     printf(\"Missing semicolon below\\n\")\n      |                                        ^\n      |                                        ;\n    5 |     return 0;\n      |     ~~~~~~                              ",
+  "code": -1,
+  "didExecute": false,
+  "stderr": "Build failed",
+  "stdout": "",
+  "timedOut": false
+ },
+ "ec1b010ee42168edb368a8558a2712233e6f942863fe9951ce6e8942944e0876": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "value=0xCAFEBABE bytes[0]=0xBE low=0xBABE high=0xCAFE size=4\nint  60\nstr  Mozilla/5.0\nip   192.168.56.101",
+  "timedOut": false
+ },
+ "f3403cbc681f0f7e502ac6839c1f08e0b550ee2658f08e1155dac053a9ba4c11": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "ok: 5 'hello'\nerror -2\nerror -3\nerror -1",
+  "timedOut": false
+ },
+ "f51c53a48f952f3c9d583d0cf3b2a391225a5f49311922dd5ec3c111fbdb251d": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "== integrity check ==\nchecksum = 0x0000009F",
+  "timedOut": false
+ },
+ "f88880882184d967a13ee361347ddf722983de04f28ec49f6ccbc52d6fd0f434": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "my_add(40, 2)   = 42\nmy_abs(-17)     = 17\nmy_abs(23)      = 23\ncount_down(100) = 5050",
+  "timedOut": false
+ },
+ "f926056a3d46a319c0d2748b28231f00ad69975f1fb3f7d5d79054f5736f8eb3": {
+  "build": "",
+  "code": 0,
+  "didExecute": true,
+  "stderr": "",
+  "stdout": "kernel32",
+  "timedOut": false
+ }
+}

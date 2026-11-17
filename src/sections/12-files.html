@@ -1,0 +1,422 @@
+      <section class="section" id="s12" data-part="الجزء 2 · الذاكرة والبوينترز" data-nav="الملفات والـ Binary Parsing" data-icon="📂" data-keywords="file io fopen fread fwrite fseek ftell fgets fprintf binary mode text mode errno perror feof hexdump magic bytes file signature parsing cursor bounds check createfile readfile">
+        <div class="section-head">
+          <span class="section-index">12</span>
+          <div>
+            <p class="eyebrow">المرحلة الثانية عشر</p>
+            <h2>الملفات و Parsing البيانات الـ Binary بأمان</h2>
+            <p class="lede">نص شغل المحلل هو <b>parsing</b>: PE headers، configs مشفرة، network captures، memory dumps. هنا هتتعلم تقرا وتكتب ملفات binary صح، والأهم: تكتب parser <b>مايقعش</b> لو البيانات بايظة أو معمولة عشان تكسره — لأن أي sample ممكن يكون معمول له كده بالظبط عشان يوقّع أدوات التحليل.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">fopen و الـ Modes <span class="tag">stdio</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Mode</th><th>المعنى</th><th>لو الملف مش موجود</th></tr></thead>
+            <tbody>
+              <tr><td><code>"rb"</code></td><td>قراية binary</td><td><code>NULL</code></td></tr>
+              <tr><td><code>"wb"</code></td><td>كتابة binary (<b>بيمسح</b> المحتوى القديم)</td><td>بيعمله</td></tr>
+              <tr><td><code>"ab"</code></td><td>إضافة في الآخر</td><td>بيعمله</td></tr>
+              <tr><td><code>"r+b"</code></td><td>قراية + كتابة</td><td><code>NULL</code></td></tr>
+              <tr><td><code>"r"</code> / <code>"w"</code></td><td>text mode</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout danger"><span class="ci">⚠️</span><div><strong>على Windows: استخدم "b" دايمًا مع البيانات الـ binary</strong><p>الـ text mode على Windows بيحوّل <code>\n</code> لـ <code>\r\n</code> في الكتابة والعكس في القراية، وبيعتبر الـ byte <code>0x1A</code> (Ctrl+Z) نهاية الملف! لو قريت EXE بـ <code>"r"</code> هتاخد بيانات بايظة. على Linux مفيش فرق، بس اكتب <code>"rb"</code> عشان كودك يبقى portable.</p></div></div>
+
+        <h3 class="sub">كتابة وقراية binary <span class="tag">fwrite · fread</span></h3>
+        <c-example file="file_rw.c">
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    const char *path = "sample.bin";
+    const uint8_t data[] = { 0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0xDE, 0xAD };
+
+    FILE *f = fopen(path, "wb");
+    if (!f) { perror("fopen for write"); return 1; }
+    size_t written = fwrite(data, 1, sizeof data, f);   /* (ptr, elem size, count, file) */
+    fclose(f);
+    printf("wrote %zu bytes\n", written);
+
+    f = fopen(path, "rb");
+    if (!f) { perror("fopen for read"); return 1; }
+
+    fseek(f, 0, SEEK_END);              /* jump to the end ...      */
+    long size = ftell(f);               /* ... position = file size */
+    rewind(f);                          /* back to offset 0         */
+    printf("file size = %ld\n", size);
+
+    uint8_t buf[16];
+    size_t got = fread(buf, 1, sizeof buf, f);   /* may return LESS than asked */
+    printf("read %zu bytes:", got);
+    for (size_t i = 0; i < got; i++) printf(" %02X", buf[i]);
+    printf("\n");
+
+    fseek(f, 8, SEEK_SET);              /* random access: jump to offset 8 */
+    int c = fgetc(f);
+    printf("byte @8 = 0x%02X\n", c);
+
+    fclose(f);
+    remove(path);
+    return 0;
+}
+        </c-example>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الدالة</th><th>الوظيفة</th><th>ترجع</th></tr></thead>
+            <tbody>
+              <tr><td><code>fread(p, size, n, f)</code></td><td>اقرا n عناصر حجم كل واحد size</td><td>عدد العناصر اللي اتقرت فعلًا</td></tr>
+              <tr><td><code>fwrite(p, size, n, f)</code></td><td>اكتب</td><td>عدد العناصر اللي اتكتبت</td></tr>
+              <tr><td><code>fseek(f, off, whence)</code></td><td>حرّك المؤشر (<code>SEEK_SET/CUR/END</code>)</td><td>0 لو نجح</td></tr>
+              <tr><td><code>ftell(f)</code></td><td>الموقع الحالي</td><td><code>long</code> (أو -1)</td></tr>
+              <tr><td><code>fgetc(f)</code></td><td>byte واحد</td><td><code>int</code>: 0..255 أو <code>EOF</code> (-1)</td></tr>
+              <tr><td><code>fgets(buf, n, f)</code></td><td>سطر نصي بحد أقصى n-1</td><td><code>buf</code> أو <code>NULL</code></td></tr>
+              <tr><td><code>fprintf(f, ...)</code></td><td>printf لملف (<code>stderr</code> للأخطاء)</td><td>عدد الحروف</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>fgetc بترجع int مش char</strong><p>لازم تخزن نتيجة <code>fgetc</code> في <code>int</code>: الـ byte <code>0xFF</code> = 255، والـ <code>EOF</code> = -1. لو خزنتها في <code>char</code> (signed)، الـ <code>0xFF</code> هيبقى -1 والـ loop هتقف في نص الملف!</p></div></div>
+
+        <h3 class="sub">قراية ملف نصي سطر بسطر <span class="tag">fgets</span></h3>
+        <c-example file="lines.c">
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    FILE *f = fopen("iocs.txt", "w");
+    if (!f) return 1;
+    fprintf(f, "# indicators\n185.220.101.4\nevil.example\n\nupdate-check.test\n");
+    fclose(f);
+
+    f = fopen("iocs.txt", "r");
+    if (!f) return 1;
+    char line[128];
+    int n = 0;
+    /* Correct loop: test the READ itself, not feof() */
+    while (fgets(line, sizeof line, f) != NULL) {
+        line[strcspn(line, "\r\n")] = '\0';        /* strip the newline */
+        if (line[0] == '\0' || line[0] == '#') continue;
+        printf("IOC %d: %s\n", ++n, line);
+    }
+    if (ferror(f)) perror("read error");
+    fclose(f);
+    remove("iocs.txt");
+    return 0;
+}
+        </c-example>
+        <div class="callout danger"><span class="ci">🐛</span><div><strong>Bug كلاسيكي: <code>while (!feof(f))</code></strong><p><code>feof</code> بتبقى true <b>بعد</b> ما محاولة قراية تفشل، مش قبلها. فالـ loop دي بتلف مرة زيادة وبتعالج آخر سطر مرتين أو بيانات قديمة. الصح دايمًا: اختبر نتيجة دالة القراية نفسها.</p></div></div>
+
+        <h3 class="sub">Parser آمن: الـ Cursor Pattern <span class="tag">bounds checking</span></h3>
+        <p>القاعدة الذهبية: <b>متصدقش أي قيمة جاية من الملف</b>. كل طول وكل offset لازم يتشيك قبل ما تستخدمه. أنضف طريقة: struct فيه pointer للبيانات + الحجم + الموقع الحالي، وكل قراية بتتأكد إن فيه bytes كفاية.</p>
+        <c-example file="cursor.c">
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef struct {
+    const uint8_t *data;
+    size_t size;
+    size_t pos;
+    int    error;            /* sticky: once set, every read fails */
+} Cursor;
+
+static int need(Cursor *c, size_t n) {
+    if (c->error || n > c->size - c->pos) { c->error = 1; return 0; }   /* no overflow */
+    return 1;
+}
+static uint8_t  rd_u8 (Cursor *c) { if (!need(c, 1)) return 0; return c->data[c->pos++]; }
+static uint16_t rd_u16(Cursor *c) {
+    if (!need(c, 2)) return 0;
+    uint16_t v = (uint16_t)(c->data[c->pos] | (c->data[c->pos + 1] << 8));
+    c->pos += 2; return v;
+}
+static uint32_t rd_u32(Cursor *c) {
+    if (!need(c, 4)) return 0;
+    const uint8_t *p = c->data + c->pos;
+    c->pos += 4;
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static const uint8_t *rd_bytes(Cursor *c, size_t n) {
+    if (!need(c, n)) return NULL;
+    const uint8_t *p = c->data + c->pos;
+    c->pos += n; return p;
+}
+
+/* Format: u32 magic | u16 count | count * (u8 type, u16 len, len bytes) */
+static void parse(const uint8_t *buf, size_t size) {
+    Cursor c = { buf, size, 0, 0 };
+    uint32_t magic = rd_u32(&c);
+    uint16_t count = rd_u16(&c);
+    if (c.error || magic != 0x47464E43) { puts("  bad header"); return; }   /* "CNFG" */
+    for (uint16_t i = 0; i < count; i++) {
+        uint8_t type = rd_u8(&c);
+        uint16_t len = rd_u16(&c);
+        const uint8_t *val = rd_bytes(&c, len);
+        if (c.error) { printf("  record %u: TRUNCATED (claims %u bytes)\n", i, len); return; }
+        printf("  record %u: type=%u len=%u value=%.*s\n", i, type, len, (int)len, (const char *)val);
+    }
+}
+
+int main(void) {
+    const uint8_t good[] = { 'C','N','F','G', 2,0,  1, 4,0, 'h','o','s','t',  2, 3,0, '4','4','3' };
+    const uint8_t evil[] = { 'C','N','F','G', 1,0,  1, 0xFF,0xFF, 'x' };   /* lies about length */
+    puts("good file:");  parse(good, sizeof good);
+    puts("evil file:");  parse(evil, sizeof evil);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>ليه <code>n &gt; size - pos</code> مش <code>pos + n &gt; size</code>؟</strong><p>لو <code>n</code> رقم ضخم جاي من الملف، <code>pos + n</code> ممكن يعمل <b>overflow</b> ويلف لرقم صغير فالـ check يعدّي! الصيغة التانية مستحيل تعمل overflow لأن <code>pos &lt;= size</code> دايمًا. التفصيلة دي بالظبط هي الفرق بين parser آمن وثغرة — وهتشوف أدوات تحليل حقيقية وقعت بسببها.</p></div></div>
+
+        <h3 class="sub">تعرّف نوع الملف من الـ Magic Bytes <span class="tag">file signatures</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ Bytes (hex)</th><th>ASCII</th><th>النوع</th></tr></thead>
+            <tbody>
+              <tr><td><code>4D 5A</code></td><td><code>MZ</code></td><td>PE (EXE/DLL/SYS) على Windows</td></tr>
+              <tr><td><code>7F 45 4C 46</code></td><td><code>.ELF</code></td><td>ELF (Linux binaries)</td></tr>
+              <tr><td><code>CF FA ED FE</code></td><td>—</td><td>Mach-O 64-bit (macOS)</td></tr>
+              <tr><td><code>50 4B 03 04</code></td><td><code>PK..</code></td><td>ZIP (وكمان DOCX/XLSX/JAR/APK)</td></tr>
+              <tr><td><code>D0 CF 11 E0</code></td><td>—</td><td>OLE (DOC/XLS القديمة — macros!)</td></tr>
+              <tr><td><code>25 50 44 46</code></td><td><code>%PDF</code></td><td>PDF</td></tr>
+              <tr><td><code>52 61 72 21</code></td><td><code>Rar!</code></td><td>RAR</td></tr>
+              <tr><td><code>1F 8B</code></td><td>—</td><td>GZIP</td></tr>
+              <tr><td><code>89 50 4E 47</code></td><td><code>.PNG</code></td><td>PNG (ممكن يكون مخبي payload جواه)</td></tr>
+              <tr><td><code>4C 00 00 00</code></td><td><code>L...</code></td><td>Windows shortcut (LNK)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="magic.c">
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+static const char *identify(const uint8_t *b, size_t n) {
+    static const struct { const char *sig; size_t len; const char *type; } sigs[] = {
+        { "MZ", 2, "PE executable" },
+        { "\x7F" "ELF", 4, "ELF executable" },
+        { "PK\x03\x04", 4, "ZIP archive (or DOCX/JAR/APK)" },
+        { "%PDF", 4, "PDF document" },
+        { "\xD0\xCF\x11\xE0", 4, "OLE (legacy Office)" },
+    };
+    for (size_t i = 0; i < sizeof sigs / sizeof sigs[0]; i++)
+        if (n >= sigs[i].len && memcmp(b, sigs[i].sig, sigs[i].len) == 0)
+            return sigs[i].type;
+    return "unknown";
+}
+
+int main(void) {
+    const uint8_t a[] = { 0x4D, 0x5A, 0x90, 0x00 };
+    const uint8_t b[] = { 0x7F, 0x45, 0x4C, 0x46, 0x02 };
+    const uint8_t c[] = { 0x50, 0x4B, 0x03, 0x04, 0x14 };
+    const uint8_t d[] = { 0x00, 0x11 };
+    printf("%s\n%s\n%s\n%s\n", identify(a, sizeof a), identify(b, sizeof b),
+           identify(c, sizeof c), identify(d, sizeof d));
+    return 0;
+}
+        </c-example>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>متصدقش الامتداد</strong><p><code>invoice.pdf.exe</code>، أو <code>photo.jpg</code> وهو في الحقيقة PE. الـ magic bytes هي الحقيقة (أداة <code>file</code> على Linux و<b>TrID</b> و<b>DIE</b> بيشتغلوا كده). ولو لقيت <code>MZ</code> في <b>نص</b> ملف (مش في أوله) — غالبًا فيه PE متخبي جواه (embedded payload).</p></div></div>
+
+        <h3 class="sub">hexdump -C بإيدك <span class="tag">classic tool</span></h3>
+        <c-example file="hexdump.c">
+#include <stdio.h>
+#include <ctype.h>
+
+static void hexdump(const unsigned char *data, size_t len, size_t base) {
+    for (size_t off = 0; off < len; off += 16) {
+        printf("%08zx  ", base + off);
+        for (size_t i = 0; i < 16; i++) {
+            if (off + i < len) printf("%02x ", data[off + i]);
+            else               printf("   ");
+            if (i == 7) printf(" ");
+        }
+        printf(" |");
+        for (size_t i = 0; i < 16 && off + i < len; i++) {
+            unsigned char ch = data[off + i];
+            putchar(isprint(ch) ? ch : '.');
+        }
+        printf("|\n");
+    }
+}
+
+int main(void) {
+    const unsigned char sample[] =
+        "MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00"
+        "This program cannot be run in DOS mode.";
+    hexdump(sample, sizeof sample - 1, 0);
+    return 0;
+}
+        </c-example>
+        <p>شايف <code>This program cannot be run in DOS mode.</code>؟ ده الـ <b>DOS stub</b> الموجود في أول كل PE تقريبًا. هتبني على الكود ده في مشروع الـ hexdump.</p>
+
+        <h3 class="sub">نفس الفكرة على Windows API <span class="tag">CreateFile · ReadFile</span></h3>
+        <c-example file="win_read.c" win norun>
+#include <windows.h>
+#include <stdio.h>
+
+int main(void) {
+    HANDLE h = CreateFileW(L"C:\\Windows\\System32\\notepad.exe", GENERIC_READ,
+                           FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {                 /* NOT NULL: (HANDLE)-1 */
+        printf("CreateFileW failed: %lu\n", GetLastError());
+        return 1;
+    }
+    BYTE  buf[64];
+    DWORD got = 0;
+    if (ReadFile(h, buf, sizeof buf, &got, NULL))
+        printf("read %lu bytes, magic = %c%c\n", got, buf[0], buf[1]);
+    CloseHandle(h);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>Ransomware = loop على CreateFile/ReadFile/WriteFile</strong><p>الـ ransomware بيمشي على الملفات بـ <code>FindFirstFileW</code>/<code>FindNextFileW</code>، يفتح كل واحد، يقراه، يشفره، يكتبه، ويغير امتداده بـ <code>MoveFileW</code>. لما تشوف الـ APIs دي في loop واحد مع crypto (<code>BCryptEncrypt</code> أو AES S-Box) — عرفت العيلة. ولاحظ: <code>CreateFile</code> لما تفشل بترجع <code>INVALID_HANDLE_VALUE</code> (= -1) مش <code>NULL</code> — في الـ asm: <code>cmp rax, 0FFFFFFFFFFFFFFFFh</code>.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 12</h3></div>
+
+          <quiz id="s12-q1" answer="2">
+            <q>برنامج على Windows بيقرا EXE بـ <code>fopen(path, "r")</code> والبيانات بتطلع ناقصة وبايظة. السبب؟</q>
+            <o><code>fread</code> مبتقراش EXE</o>
+            <o>الملف محمي</o>
+            <o>الـ text mode بيحوّل <code>\r\n</code> وبيقف عند <code>0x1A</code> — لازم <code>"rb"</code></o>
+            <o>لازم تستخدم <code>fgets</code></o>
+            <good>الـ text mode على Windows بيعمل ترجمة لنهايات السطور وبيعتبر Ctrl+Z نهاية ملف. البيانات الـ binary لازم <code>"rb"</code>.</good>
+            <bad>إيه الفرق بين <code>"r"</code> و<code>"rb"</code> على Windows؟</bad>
+          </quiz>
+
+          <quiz id="s12-q2" answer="0">
+            <q>ليه <code>while (!feof(f)) { fgets(line, n, f); process(line); }</code> غلط؟</q>
+            <o><code>feof</code> بيبقى true بس بعد ما قراية تفشل، فآخر لفة بتعالج <code>line</code> القديم تاني</o>
+            <o><code>feof</code> مش موجودة</o>
+            <o><code>fgets</code> مبتقراش سطور</o>
+            <o>مفيش غلط</o>
+            <good>الصح: <code>while (fgets(line, n, f)) { ... }</code> — اختبر نتيجة القراية نفسها.</good>
+            <bad>إمتى بالظبط بيتعمل set للـ EOF flag؟</bad>
+          </quiz>
+
+          <quiz id="s12-q3" answer="3">
+            <q>parser فيه: <code>if (offset + len &gt; file_size) return ERR;</code> و<code>offset</code> و<code>len</code> <code>uint32_t</code> جايين من الملف. المشكلة؟</q>
+            <o>مفيش مشكلة</o>
+            <o>لازم <code>&gt;=</code></o>
+            <o><code>file_size</code> لازم يبقى signed</o>
+            <o><code>offset + len</code> ممكن يعمل overflow ويلف لرقم صغير، فالـ check يعدّي والقراية تبقى برا الحدود</o>
+            <good>مثال: <code>offset = 0x10</code>، <code>len = 0xFFFFFFF8</code> ← المجموع <code>0x8</code> &lt; size. الصح: <code>if (offset &gt; size || len &gt; size - offset)</code>.</good>
+            <bad>القيم جاية من المهاجم ومحدودة بـ 32-bit… إيه اللي يحصل لو جمعت رقمين كبار؟</bad>
+          </quiz>
+
+          <quiz id="s12-q4" answer="1">
+            <q>ملف اسمه <code>report.docx</code> أول bytes فيه <code>4D 5A 90 00</code>. الحقيقة؟</q>
+            <o>مستند Word عادي</o>
+            <o>ده <b>PE executable</b> متنكر بامتداد مستند</o>
+            <o>ملف ZIP</o>
+            <o>ملف PDF</o>
+            <good><code>MZ</code> = PE. الـ DOCX الحقيقي ZIP ويبدأ بـ <code>PK\x03\x04</code>. الامتداد كذب.</good>
+            <bad>ارجع لجدول الـ magic bytes.</bad>
+          </quiz>
+
+          <quiz id="s12-q5" answer="2">
+            <q>في الـ disassembly بعد <code>call CreateFileW</code> لقيت <code>cmp rax, -1</code> ثم <code>je error</code>. ليه -1 مش 0؟</q>
+            <o>غلطة في الـ compiler</o>
+            <o>-1 معناها نجاح</o>
+            <o>لأن <code>CreateFileW</code> بترجع <code>INVALID_HANDLE_VALUE</code> (= <code>(HANDLE)-1</code>) لما تفشل، مش <code>NULL</code></o>
+            <o>دي مقارنة طول الملف</o>
+            <good>من الـ inconsistencies المشهورة في WinAPI: بعض الدوال بترجع <code>NULL</code> للفشل وبعضها <code>INVALID_HANDLE_VALUE</code>. معرفتها بتساعدك تحدد الـ error paths بسرعة.</good>
+            <bad>اقرا التعليق في مثال <code>win_read.c</code>.</bad>
+          </quiz>
+
+          <challenge id="s12-c1" title="اكتب ملف واحسب حجمه وCRC بسيط" level="1">
+            <desc>اكتب الـ string <code>"The quick brown fox"</code> في ملف binary، اقفله، افتحه تاني، احسب حجمه بـ <code>fseek/ftell</code>، واقرا كل bytes واحسب <b>مجموعهم</b> (sum) و<b>XOR بتاعهم</b>. اطبع:<br><code>size=19 sum=1811 xor=0x0B</code></desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    const char *msg = "The quick brown fox";
+    // TODO: write, reopen, size, read, sum + xor
+    (void)msg;
+    return 0;
+}
+            </starter>
+            <expected>
+size=19 sum=1811 xor=0x0B
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    const char *msg = "The quick brown fox";
+    FILE *f = fopen("fox.bin", "wb");
+    if (!f) return 1;
+    fwrite(msg, 1, strlen(msg), f);
+    fclose(f);
+
+    f = fopen("fox.bin", "rb");
+    if (!f) return 1;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+
+    unsigned sum = 0, x = 0;
+    int c;
+    while ((c = fgetc(f)) != EOF) {
+        sum += (unsigned)c;
+        x ^= (unsigned)c;
+    }
+    fclose(f);
+    remove("fox.bin");
+    printf("size=%ld sum=%u xor=0x%02X\n", size, sum, x);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s12-c2" title="Parser لـ TLV config بأمان" level="3">
+            <desc>الـ config format: سلسلة records، كل واحد: <code>u8 type</code>، <code>u8 len</code>، و<code>len</code> bytes. اطبع كل record (type بالـ hex والقيمة كنص). لو record طوله بيعدّي آخر الـ buffer، اطبع <code>truncated at offset N</code> ووقف (N = offset بداية الـ record). الناتج:<br><code>0x01: 10.0.0.7</code><br><code>0x02: 8443</code><br><code>0x05: Mozilla/5.0</code><br><code>truncated at offset 29</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    const uint8_t cfg[] = {
+        0x01, 8,  '1','0','.','0','.','0','.','7',
+        0x02, 4,  '8','4','4','3',
+        0x05, 11, 'M','o','z','i','l','l','a','/','5','.','0',
+        0x07, 200, 'x', 'y'
+    };
+    size_t size = sizeof cfg;
+    // TODO: walk the records safely
+    (void)size;
+    return 0;
+}
+            </starter>
+            <expected>
+0x01: 10.0.0.7
+0x02: 8443
+0x05: Mozilla/5.0
+truncated at offset 29
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    const uint8_t cfg[] = {
+        0x01, 8,  '1','0','.','0','.','0','.','7',
+        0x02, 4,  '8','4','4','3',
+        0x05, 11, 'M','o','z','i','l','l','a','/','5','.','0',
+        0x07, 200, 'x', 'y'
+    };
+    size_t size = sizeof cfg;
+    size_t pos = 0;
+    while (pos < size) {
+        if (size - pos < 2) { printf("truncated at offset %zu\n", pos); break; }
+        uint8_t type = cfg[pos], len = cfg[pos + 1];
+        if (len > size - pos - 2) { printf("truncated at offset %zu\n", pos); break; }
+        printf("0x%02X: %.*s\n", type, (int)len, (const char *)&cfg[pos + 2]);
+        pos += 2 + (size_t)len;
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

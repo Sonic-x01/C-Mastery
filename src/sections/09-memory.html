@@ -1,0 +1,437 @@
+      <section class="section" id="s09" data-part="الجزء 2 · الذاكرة والبوينترز" data-nav="الذاكرة والـ Heap" data-icon="🧠" data-keywords="memory layout text data bss rodata heap stack malloc calloc realloc free memory leak double free use after free heap overflow virtualalloc heapalloc aslr dynamic array">
+        <div class="section-head">
+          <span class="section-index">09</span>
+          <div>
+            <p class="eyebrow">المرحلة التاسعة</p>
+            <h2>خريطة الذاكرة والـ Dynamic Memory</h2>
+            <p class="lede">كل process ليه <b>مساحة عناوين</b> متقسمة لمناطق: الكود، البيانات الثابتة، الـ globals، الـ heap، الـ stack، والـ DLLs. لما تفتح x64dbg وتشوف عنوان، أول سؤال: <b>العنوان ده في أنهي منطقة؟</b> الإجابة بتقولك تقريبًا كل حاجة عن البيانات اللي فيه.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">خريطة الـ Process <span class="tag">memory layout</span></h3>
+        <div class="mem">
+          <div class="mem-title">تخطيط مبسّط لـ process على x64 (العناوين العالية فوق)</div>
+          <div class="mem-row ret"><span class="addr">عالي جدًا</span><span class="val">Kernel</span><span class="what">ممنوع على البرنامج (user mode)</span></div>
+          <div class="mem-row hl"><span class="addr">0x7ffc…</span><span class="val">Stack ↓</span><span class="what">المتغيرات المحلية، return addresses — بيكبر <b>لتحت</b></span></div>
+          <div class="mem-row"><span class="addr">0x7f…</span><span class="val">Shared libs / DLLs</span><span class="what">libc / kernel32.dll / ntdll.dll + أي <code>mmap</code>/<code>VirtualAlloc</code></span></div>
+          <div class="mem-row hl"><span class="addr">…</span><span class="val">Heap ↑</span><span class="what"><code>malloc</code> / <code>HeapAlloc</code> — بيكبر <b>لفوق</b></span></div>
+          <div class="mem-row"><span class="addr">image + …</span><span class="val">.bss</span><span class="what">globals متصفّرة (مبتاخدش مساحة في الملف)</span></div>
+          <div class="mem-row"><span class="addr">image + …</span><span class="val">.data</span><span class="what">globals ليها قيمة ابتدائية (RW)</span></div>
+          <div class="mem-row"><span class="addr">image + …</span><span class="val">.rodata / .rdata</span><span class="what">string literals، الثوابت، جداول (R فقط)</span></div>
+          <div class="mem-row"><span class="addr">image base</span><span class="val">.text</span><span class="what">الكود (R + X)</span></div>
+          <div class="mem-cap">مع <b>ASLR</b> العناوين بتتغير كل تشغيل، لكن الترتيب والصلاحيات ثابتين. على Windows الـ image base الافتراضي لـ EXE 64-bit هو <code>0x140000000</code>.</div>
+        </div>
+        <c-example file="where.c">
+#include <stdio.h>
+#include <stdlib.h>
+
+int initialized_global = 42;          /* .data   */
+int zero_global;                      /* .bss    */
+const char *literal = "in .rodata";   /* pointer in .data, text in .rodata */
+
+int main(void) {
+    int local = 1;                    /* stack   */
+    int *heap = malloc(sizeof *heap); /* heap    */
+    if (!heap) return 1;
+
+    printf("code   (.text)  : %p\n", (void *)main);
+    printf("literal(.rodata): %p\n", (void *)literal);
+    printf("global (.data)  : %p\n", (void *)&initialized_global);
+    printf("global (.bss)   : %p\n", (void *)&zero_global);
+    printf("heap            : %p\n", (void *)heap);
+    printf("stack           : %p\n", (void *)&local);
+    free(heap);
+    return 0;
+}
+        </c-example>
+        <p>شغّله كذا مرة ولاحظ: عناوين الـ <b>heap</b> والـ <b>stack</b> بتتغير كل مرة (ASLR)، لكن الكود والـ globals ثابتين عند <code>0x40xxxx</code> — لأن Compiler Explorer بيبني executable <b>non-PIE</b> (مش Position Independent)، فالـ image بيتحمل دايمًا على نفس العنوان. مع <b>PIE</b> (الافتراضي في أغلب توزيعات Linux، وزي <code>/DYNAMICBASE</code> على Windows) الـ image نفسه بيتنقل كمان. ولاحظ إن الكود والـ globals قريبين من بعض (نفس الـ image)، والـ stack بعيد جدًا فوق (<code>0x7ff…</code>). <b>من شكل العنوان بس تقدر تخمّن منطقته.</b></p>
+
+        <h3 class="sub">Stack vs Heap <span class="tag">comparison</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th></th><th>Stack</th><th>Heap</th></tr></thead>
+            <tbody>
+              <tr><td>الحجز</td><td>أوتوماتيك (<code>sub rsp, N</code>)</td><td>يدوي (<code>malloc</code>)</td></tr>
+              <tr><td>التحرير</td><td>أوتوماتيك لما الدالة ترجع</td><td>يدوي (<code>free</code>) — لو نسيت = leak</td></tr>
+              <tr><td>الحجم</td><td>صغير (MB قليلة)</td><td>كبير (لحد الـ RAM المتاحة)</td></tr>
+              <tr><td>السرعة</td><td>سريع جدًا</td><td>أبطأ (فيه إدارة metadata)</td></tr>
+              <tr><td>مدة الحياة</td><td>جوه الدالة بس</td><td>لحد ما تعمل <code>free</code></td></tr>
+              <tr><td>الثغرات المشهورة</td><td>Stack buffer overflow</td><td>Heap overflow، UAF، Double free</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">malloc / calloc / realloc / free <span class="tag">stdlib.h</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الدالة</th><th>الوظيفة</th><th>ملاحظة مهمة</th></tr></thead>
+            <tbody>
+              <tr><td><code>malloc(n)</code></td><td>احجز n bytes</td><td>المحتوى <b>مش متصفّر</b> (garbage). بترجع <code>NULL</code> لو فشلت</td></tr>
+              <tr><td><code>calloc(count, size)</code></td><td>احجز count × size</td><td><b>متصفّرة</b> + بتتحقق من الـ overflow في الضرب</td></tr>
+              <tr><td><code>realloc(p, n)</code></td><td>غيّر الحجم</td><td>ممكن تنقل البيانات لمكان جديد. لو فشلت بترجع <code>NULL</code> والقديم <b>لسه موجود</b></td></tr>
+              <tr><td><code>free(p)</code></td><td>حرر</td><td><code>free(NULL)</code> آمن. بعد الـ free، <code>p</code> لسه شايل العنوان القديم (dangling)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="heap_basics.c">
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main(void) {
+    size_t n = 5;
+    int *nums = malloc(n * sizeof *nums);      /* sizeof *ptr: type-safe idiom */
+    if (nums == NULL) {                        /* ALWAYS check */
+        perror("malloc");
+        return 1;
+    }
+    for (size_t i = 0; i < n; i++) nums[i] = (int)(i * i);
+
+    /* Grow safely: never assign realloc's result straight back */
+    int *bigger = realloc(nums, 10 * sizeof *nums);
+    if (bigger == NULL) { free(nums); return 1; }
+    nums = bigger;
+    for (size_t i = n; i < 10; i++) nums[i] = -1;
+
+    for (size_t i = 0; i < 10; i++) printf("%d ", nums[i]);
+    printf("\n");
+
+    char *copy = calloc(32, 1);                /* zero-filled */
+    if (copy) {
+        strncpy(copy, "heap string", 31);
+        printf("%s (%zu)\n", copy, strlen(copy));
+    }
+
+    free(copy);
+    free(nums);
+    nums = NULL;                               /* avoid a dangling pointer */
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">أخطاء الذاكرة: أنواع الثغرات <span class="tag">memory bugs</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الخطأ</th><th>شكله</th><th>النتيجة</th></tr></thead>
+            <tbody>
+              <tr><td><b>Memory leak</b></td><td>حجز من غير <code>free</code></td><td>الذاكرة بتزيد لحد ما تخلص (مشكلة في الخدمات اللي بتشتغل طول الوقت)</td></tr>
+              <tr><td><b>Use-After-Free (UAF)</b></td><td>استخدام <code>p</code> بعد <code>free(p)</code></td><td>الذاكرة ممكن تتحجز لحاجة تانية → قراية/كتابة على object مختلف. <b>من أخطر الثغرات</b> (المتصفحات بالذات)</td></tr>
+              <tr><td><b>Double free</b></td><td><code>free(p)</code> مرتين</td><td>بيبوظ الـ metadata بتاعة الـ heap → crash أو exploitation</td></tr>
+              <tr><td><b>Heap overflow</b></td><td>كتابة بعد نهاية الـ block</td><td>بيكتب على الـ block اللي بعده أو الـ metadata</td></tr>
+              <tr><td><b>Size overflow</b></td><td><code>malloc(count * size)</code> والضرب عمل overflow</td><td>buffer أصغر من المتوقع → heap overflow</td></tr>
+              <tr><td><b>Uninitialized read</b></td><td>قراية من <code>malloc</code> قبل الكتابة</td><td>بيانات قديمة (ممكن سرية) بتتسرب</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="uaf_demo.c" norun allow-warn>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+struct session { char user[16]; int is_admin; };
+
+int main(void) {
+    struct session *s = malloc(sizeof *s);
+    strcpy(s->user, "guest");
+    s->is_admin = 0;
+    free(s);                                   /* s is now dangling */
+
+    /* Attacker-controlled allocation of the SAME size often reuses the chunk */
+    char *msg = malloc(sizeof(struct session));
+    memset(msg, 0x41, sizeof(struct session)); /* fills user AND is_admin */
+
+    if (s->is_admin)                           /* USE-AFTER-FREE: reads attacker data */
+        puts("admin access granted?!");
+    free(msg);
+    return 0;
+}
+        </c-example>
+        <p>المثال ده بيوضح <b>ليه</b> الـ UAF خطير: الـ chunk اللي اتحرر بيتعاد استخدامه، فالـ pointer القديم بيقرا بيانات حد تاني. (مش بنشغله هنا لأن ده UB حرفيًا.) الأداة اللي بتكشف كل الأخطاء دي وقت التشغيل: <code>gcc -fsanitize=address -g</code> على Linux/WSL — اتعود تستخدمها في كل كود بتكتبه.</p>
+
+        <h3 class="sub">حماية حساب الحجم <span class="tag">safe sizes</span></h3>
+        <c-example file="safe_alloc.c">
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+/* Returns NULL instead of allocating a too-small buffer */
+static void *alloc_array(size_t count, size_t size) {
+    if (size != 0 && count > SIZE_MAX / size) {
+        fprintf(stderr, "refused: %zu * %zu overflows\n", count, size);
+        return NULL;
+    }
+    return malloc(count * size);
+}
+
+int main(void) {
+    void *ok = alloc_array(1000, 16);
+    printf("1000 x 16      -> %s\n", ok ? "allocated" : "NULL");
+    free(ok);
+
+    void *bad = alloc_array(SIZE_MAX / 2, 4);           /* would wrap around */
+    printf("huge x 4       -> %s\n", bad ? "allocated" : "NULL");
+
+    /* What a 32-bit wrap looks like */
+    uint32_t count = 0x40000001, elem = 4;
+    printf("32-bit 0x%X * 4 = 0x%X (tiny!)\n", count, count * elem);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">Dynamic Array: أهم data structure عملي <span class="tag">vector</span></h3>
+        <c-example file="vector.c">
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct {
+    int    *data;
+    size_t  len;
+    size_t  cap;
+} IntVec;
+
+static int vec_push(IntVec *v, int value) {
+    if (v->len == v->cap) {
+        size_t new_cap = v->cap ? v->cap * 2 : 4;          /* geometric growth */
+        int *p = realloc(v->data, new_cap * sizeof *p);
+        if (!p) return -1;
+        v->data = p;
+        v->cap  = new_cap;
+        printf("  grew to %zu\n", new_cap);
+    }
+    v->data[v->len++] = value;
+    return 0;
+}
+
+int main(void) {
+    IntVec v = { 0 };
+    for (int i = 1; i <= 10; i++) vec_push(&v, i * 10);
+    printf("len=%zu cap=%zu last=%d\n", v.len, v.cap, v.data[v.len - 1]);
+    free(v.data);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">الذاكرة على Windows <span class="tag">HeapAlloc · VirtualAlloc</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>API</th><th>المستوى</th><th>إمتى بتشوفها في الـ malware</th></tr></thead>
+            <tbody>
+              <tr><td><code>malloc</code> / <code>new</code></td><td>CRT ← بينادي <code>HeapAlloc</code></td><td>استخدام عادي</td></tr>
+              <tr><td><code>HeapAlloc</code> / <code>RtlAllocateHeap</code></td><td>Windows heap</td><td>عادي جدًا</td></tr>
+              <tr><td><code>VirtualAlloc</code> / <code>VirtualProtect</code></td><td>صفحات كاملة (4KB) بصلاحيات</td><td>⚠ <b>Unpacking</b> و<b>shellcode</b>: حجز ذاكرة RWX (<code>0x40</code>) أو تحويلها لـ executable بعد الكتابة</td></tr>
+              <tr><td><code>VirtualAllocEx</code> + <code>WriteProcessMemory</code></td><td>في process <b>تاني</b></td><td>🚩 علامة قوية على <b>process injection</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>تكنيك تحليل: Breakpoint على VirtualAlloc</strong><p>أغلب الـ packers بيعملوا: <code>VirtualAlloc</code> ← يفكوا الـ payload جوه الذاكرة دي ← <code>VirtualProtect</code> لـ executable ← يقفزوا له. فالمحلل بيحط breakpoint على <code>VirtualAlloc</code>، ياخد العنوان الراجع في <code>rax</code>، ويتابع الـ dump بتاعه لحد ما يلاقي <code>MZ</code> أو كود — وده <b>unpacked payload</b> جاهز يتعمله dump.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 09</h3></div>
+
+          <quiz id="s09-q1" answer="2">
+            <q>في x64dbg لقيت pointer قيمته <code>0x00007FFC3A2B1E40</code> في process 64-bit على Windows. أرجح منطقة؟</q>
+            <o>الـ <code>.text</code> بتاع الـ EXE</o>
+            <o>الـ heap</o>
+            <o>الـ stack أو DLL في العناوين العالية</o>
+            <o>الـ kernel</o>
+            <good>العناوين اللي بتبدأ بـ <code>0x00007FF…</code> في user mode هي الـ stack أو مكان تحميل الـ system DLLs (زي <code>ntdll</code>). الـ EXE نفسه غالبًا حوالين <code>0x140000000</code> أو أي base تاني لو فيه ASLR.</good>
+            <bad>العناوين العالية جدًا في الـ user space بتخص مين؟</bad>
+          </quiz>
+
+          <quiz id="s09-q2" answer="0">
+            <q>إيه الغلط في <code>p = realloc(p, new_size);</code>؟</q>
+            <o>لو فشلت ورجعت <code>NULL</code>، هتفقد الـ pointer القديم = memory leak</o>
+            <o>مفيش غلط</o>
+            <o><code>realloc</code> مبتغيرش الحجم</o>
+            <o>لازم تعمل <code>free</code> قبلها</o>
+            <good>استخدم متغير مؤقت: <code>tmp = realloc(p, n); if (!tmp) {...} p = tmp;</code>.</good>
+            <bad>إيه اللي بيحصل للبيانات القديمة لو <code>realloc</code> فشلت؟</bad>
+          </quiz>
+
+          <quiz id="s09-q3" answer="3">
+            <q>الفرق الأهم بين <code>calloc(n, 4)</code> و<code>malloc(n * 4)</code>؟</q>
+            <o>مفيش فرق</o>
+            <o><code>calloc</code> على الـ stack</o>
+            <o><code>malloc</code> أبطأ</o>
+            <o><code>calloc</code> بتصفّر الذاكرة وبتتحقق إن الضرب مش بيعمل overflow</o>
+            <good>الحماية من overflow الضرب ميزة أمنية مهمة، والتصفير بيمنع تسريب بيانات قديمة.</good>
+            <bad>اقرا جدول الدوال تاني.</bad>
+          </quiz>
+
+          <quiz id="s09-q4" answer="1">
+            <q>sample بينادي <code>VirtualAlloc(NULL, size, 0x3000, 0x40)</code>، وبعدين بيكتب في الذاكرة دي، وبعدين <code>call rax</code> على عنوانها. ده إيه؟</q>
+            <o>حجز heap عادي</o>
+            <o>نمط كلاسيكي لتشغيل shellcode / unpacked code: حجز RWX ← كتابة الكود ← تنفيذه</o>
+            <o>قراية ملف</o>
+            <o>إنشاء thread</o>
+            <good><code>0x3000</code> = <code>MEM_COMMIT|MEM_RESERVE</code> و<code>0x40</code> = <code>PAGE_EXECUTE_READWRITE</code>. والقفز للذاكرة دي = تنفيذ كود اتولّد وقت التشغيل.</good>
+            <bad>ارجع لجدول الـ flags في المرحلة 03: <code>0x40</code> = ؟</bad>
+          </quiz>
+
+          <quiz id="s09-q5" answer="2">
+            <q>الكود: <code>free(buf); ... buf-&gt;len = 0;</code> — اسم الثغرة؟</q>
+            <o>Double free</o>
+            <o>Memory leak</o>
+            <o>Use-After-Free</o>
+            <o>Stack overflow</o>
+            <good>الكتابة من خلال pointer اتعمله free = UAF.</good>
+            <bad>بنستخدم الذاكرة بعد ما…؟</bad>
+          </quiz>
+
+          <quiz id="s09-q6" answer="0">
+            <q>متغير global <code>static char cache[65536];</code> (من غير قيمة ابتدائية) هيزوّد حجم ملف الـ EXE بكام تقريبًا؟</q>
+            <o>تقريبًا صفر — بيروح <code>.bss</code> اللي حجمه بيتسجل بس ومش بيتخزن في الملف</o>
+            <o>64 KB بالظبط</o>
+            <o>128 KB</o>
+            <o>على حسب الـ stack</o>
+            <good>الـ <code>.bss</code> بيتعرف حجمها في الـ header والـ loader بيحجزها متصفّرة. عشان كده في PE هتلاقي section الـ <b>VirtualSize</b> بتاعها أكبر بكتير من <b>SizeOfRawData</b>.</good>
+            <bad>الـ globals المتصفّرة بتتخزن فين؟ وهل محتاجة تتكتب في الملف؟</bad>
+          </quiz>
+
+          <challenge id="s09-c1" title="String Builder ديناميكي" level="2">
+            <desc>اكتب struct <code>StrBuf { char *data; size_t len, cap; }</code> ودالة <code>int sb_append(StrBuf *sb, const char *s)</code> بتكبر بـ <code>realloc</code> (ضعف الحجم) وتحافظ على <code>'\0'</code> في الآخر. اعمل append لـ 6 أجزاء واطبع النتيجة وطولها:<br><code>C:\Windows\System32\drivers\etc\hosts (37)</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct { char *data; size_t len, cap; } StrBuf;
+
+int sb_append(StrBuf *sb, const char *s) {
+    // TODO: grow if needed (keep room for '\0'), copy s, update len
+    (void)sb; (void)s;
+    return 0;
+}
+
+int main(void) {
+    StrBuf sb = { 0 };
+    const char *parts[] = { "C:\\", "Windows\\", "System32\\", "drivers\\", "etc\\", "hosts" };
+    for (int i = 0; i < 6; i++)
+        if (sb_append(&sb, parts[i]) != 0) return 1;
+    printf("%s (%zu)\n", sb.data ? sb.data : "", sb.len);
+    free(sb.data);
+    return 0;
+}
+            </starter>
+            <expected>
+C:\Windows\System32\drivers\etc\hosts (37)
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct { char *data; size_t len, cap; } StrBuf;
+
+int sb_append(StrBuf *sb, const char *s) {
+    size_t add = strlen(s);
+    size_t need = sb->len + add + 1;            /* +1 for '\0' */
+    if (need > sb->cap) {
+        size_t cap = sb->cap ? sb->cap : 16;
+        while (cap < need) cap *= 2;
+        char *p = realloc(sb->data, cap);
+        if (!p) return -1;
+        sb->data = p;
+        sb->cap = cap;
+    }
+    memcpy(sb->data + sb->len, s, add + 1);     /* copies the '\0' too */
+    sb->len += add;
+    return 0;
+}
+
+int main(void) {
+    StrBuf sb = { 0 };
+    const char *parts[] = { "C:\\", "Windows\\", "System32\\", "drivers\\", "etc\\", "hosts" };
+    for (int i = 0; i < 6; i++)
+        if (sb_append(&sb, parts[i]) != 0) return 1;
+    printf("%s (%zu)\n", sb.data ? sb.data : "", sb.len);
+    free(sb.data);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s09-c2" title="split في array ديناميكي" level="3">
+            <desc>اكتب <code>char **split(const char *s, char sep, size_t *count)</code> بترجع array ديناميكي من strings (كل واحدة متحجزة بـ <code>malloc</code>)، ودالة <code>free_split</code> بتحرر كل حاجة. قسّم <code>"cmd.exe|/c|whoami|/all"</code> على <code>|</code> واطبع:<br><code>4 tokens</code><br><code>[0] cmd.exe</code><br><code>[1] /c</code><br><code>[2] whoami</code><br><code>[3] /all</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+char **split(const char *s, char sep, size_t *count) {
+    // TODO
+    (void)s; (void)sep;
+    *count = 0;
+    return NULL;
+}
+
+void free_split(char **parts, size_t count) {
+    // TODO
+    (void)parts; (void)count;
+}
+
+int main(void) {
+    size_t n = 0;
+    char **parts = split("cmd.exe|/c|whoami|/all", '|', &n);
+    printf("%zu tokens\n", n);
+    for (size_t i = 0; i < n; i++) printf("[%zu] %s\n", i, parts[i]);
+    free_split(parts, n);
+    return 0;
+}
+            </starter>
+            <expected>
+4 tokens
+[0] cmd.exe
+[1] /c
+[2] whoami
+[3] /all
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+char **split(const char *s, char sep, size_t *count) {
+    size_t n = 1;
+    for (const char *p = s; *p; p++)
+        if (*p == sep) n++;
+
+    char **parts = calloc(n, sizeof *parts);
+    if (!parts) { *count = 0; return NULL; }
+
+    size_t idx = 0;
+    const char *start = s;
+    for (const char *p = s; ; p++) {
+        if (*p == sep || *p == '\0') {
+            size_t len = (size_t)(p - start);
+            parts[idx] = malloc(len + 1);
+            if (!parts[idx]) break;
+            memcpy(parts[idx], start, len);
+            parts[idx][len] = '\0';
+            idx++;
+            if (*p == '\0') break;
+            start = p + 1;
+        }
+    }
+    *count = idx;
+    return parts;
+}
+
+void free_split(char **parts, size_t count) {
+    if (!parts) return;
+    for (size_t i = 0; i < count; i++) free(parts[i]);
+    free(parts);
+}
+
+int main(void) {
+    size_t n = 0;
+    char **parts = split("cmd.exe|/c|whoami|/all", '|', &n);
+    printf("%zu tokens\n", n);
+    for (size_t i = 0; i < n; i++) printf("[%zu] %s\n", i, parts[i]);
+    free_split(parts, n);
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

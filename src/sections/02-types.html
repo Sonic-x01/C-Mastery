@@ -1,0 +1,509 @@
+      <section class="section" id="s02" data-part="الجزء 1 · الأساسيات" data-nav="الأنواع وتمثيل البيانات" data-icon="🔢" data-keywords="variables types int char short long sizeof stdint uint8_t uint32_t signed unsigned two's complement overflow endianness little endian hex binary float ieee754 conversion promotion cast lp64 llp64">
+        <div class="section-head">
+          <span class="section-index">02</span>
+          <div>
+            <p class="eyebrow">المرحلة الثانية</p>
+            <h2>المتغيرات، الأنواع، والبيانات زي ما هي في الذاكرة</h2>
+            <p class="lede">في C، المتغير = <b>مكان في الذاكرة له حجم معيّن</b>، والنوع بيقول للـ compiler: الـ bytes دي أقراها إزاي. نفس الـ 4 bytes ممكن تبقى <code>int</code> أو <code>float</code> أو 4 حروف — الذاكرة مش عارفة الفرق. <b>ده أهم درس في الـ RE كله.</b></p>
+          </div>
+        </div>
+
+        <h3 class="sub">Bits وBytes وHex <span class="tag">الأساس</span></h3>
+        <p>الـ <b>bit</b> = 0 أو 1. الـ <b>byte</b> = 8 bits = قيمة من <code>0</code> لـ <code>255</code>. الـ <b>Hex</b> (أساس 16) هو اللغة الرسمية للـ Reverser لأن <b>كل خانة hex = 4 bits بالظبط</b>، فكل byte = خانتين hex: <code>0xFF</code> = <code>1111 1111</code> = 255.</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Decimal</th><th>Binary</th><th>Hex</th><th>Decimal</th><th>Binary</th><th>Hex</th></tr></thead>
+            <tbody>
+              <tr><td>0</td><td><code>0000</code></td><td><code>0</code></td><td>8</td><td><code>1000</code></td><td><code>8</code></td></tr>
+              <tr><td>1</td><td><code>0001</code></td><td><code>1</code></td><td>9</td><td><code>1001</code></td><td><code>9</code></td></tr>
+              <tr><td>2</td><td><code>0010</code></td><td><code>2</code></td><td>10</td><td><code>1010</code></td><td><code>A</code></td></tr>
+              <tr><td>3</td><td><code>0011</code></td><td><code>3</code></td><td>11</td><td><code>1011</code></td><td><code>B</code></td></tr>
+              <tr><td>4</td><td><code>0100</code></td><td><code>4</code></td><td>12</td><td><code>1100</code></td><td><code>C</code></td></tr>
+              <tr><td>5</td><td><code>0101</code></td><td><code>5</code></td><td>13</td><td><code>1101</code></td><td><code>D</code></td></tr>
+              <tr><td>6</td><td><code>0110</code></td><td><code>6</code></td><td>14</td><td><code>1110</code></td><td><code>E</code></td></tr>
+              <tr><td>7</td><td><code>0111</code></td><td><code>7</code></td><td>15</td><td><code>1111</code></td><td><code>F</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout tip"><span class="ci">🧮</span><div><strong>احفظ دول — هتشوفهم كل يوم</strong><p><code>0x10</code>=16 · <code>0x20</code>=32 (مسافة) · <code>0x30</code>=48 ('0') · <code>0x41</code>=65 ('A') · <code>0x61</code>=97 ('a') · <code>0x7F</code>=127 · <code>0x80</code>=128 · <code>0xFF</code>=255 · <code>0x100</code>=256 · <code>0x400</code>=1024 · <code>0x1000</code>=4096 (حجم الـ page) · <code>0xFFFFFFFF</code> = 4294967295 = <code>-1</code> لو signed 32-bit.</p></div></div>
+
+        <h3 class="sub">جرّب بنفسك: محوّل الأنظمة <span class="tag">interactive</span></h3>
+        <div class="conv" id="baseConv">
+          <div class="conv-inputs">
+            <input id="bcInput" value="-1" aria-label="الرقم" placeholder="255, -1, 0xdeadbeef, 0b1010">
+            <select id="bcWidth" aria-label="عدد البتات">
+              <option value="8">8-bit (char)</option>
+              <option value="16">16-bit (short)</option>
+              <option value="32" selected>32-bit (int)</option>
+              <option value="64">64-bit (long long)</option>
+            </select>
+          </div>
+          <div id="bcOut"></div>
+        </div>
+
+        <h3 class="sub">الأنواع الصحيحة وأحجامها <span class="tag">integers</span></h3>
+        <p>المعيار بيحدد <b>حد أدنى</b> للحجم بس، والحجم الفعلي بيعتمد على المنصة (الـ <b>data model</b>). ده جدول x86-64:</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>النوع</th><th>Linux/macOS x64 <small>(LP64)</small></th><th>Windows x64 <small>(LLP64)</small></th><th>المدى (signed)</th><th>في الـ Assembly</th></tr></thead>
+            <tbody>
+              <tr><td><code>char</code></td><td>1</td><td>1</td><td>-128 … 127</td><td><code>BYTE</code> · <code>al</code></td></tr>
+              <tr><td><code>short</code></td><td>2</td><td>2</td><td>-32768 … 32767</td><td><code>WORD</code> · <code>ax</code></td></tr>
+              <tr><td><code>int</code></td><td>4</td><td>4</td><td>±2.1 مليار</td><td><code>DWORD</code> · <code>eax</code></td></tr>
+              <tr><td><code>long</code></td><td><b>8</b></td><td><b>4</b> ⚠</td><td>—</td><td><code>QWORD</code>/<code>DWORD</code></td></tr>
+              <tr><td><code>long long</code></td><td>8</td><td>8</td><td>±9.2×10¹⁸</td><td><code>QWORD</code> · <code>rax</code></td></tr>
+              <tr><td>أي pointer</td><td>8</td><td>8</td><td>—</td><td><code>QWORD</code></td></tr>
+              <tr><td><code>float</code> / <code>double</code></td><td>4 / 8</td><td>4 / 8</td><td>IEEE-754</td><td><code>xmm0</code>…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>LP64 vs LLP64 — فخ حقيقي</strong><p>على Windows 64-bit، <code>long</code> لسه <b>4 bytes</b>. عشان كده الـ Windows API بتستخدم <code>DWORD</code> (= <code>unsigned long</code> = 32-bit) و<code>DWORD_PTR</code>/<code>ULONG_PTR</code> للقيم اللي بحجم pointer. لما تحلل sample، الحجم في الـ Assembly (<code>DWORD PTR</code> vs <code>QWORD PTR</code>) هو اللي بيقولك النوع الحقيقي — مش اسم النوع.</p></div></div>
+
+        <c-example file="sizes.c">
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    printf("char       : %zu\n", sizeof(char));
+    printf("short      : %zu\n", sizeof(short));
+    printf("int        : %zu\n", sizeof(int));
+    printf("long       : %zu   <- 4 on Windows x64!\n", sizeof(long));
+    printf("long long  : %zu\n", sizeof(long long));
+    printf("pointer    : %zu\n", sizeof(void *));
+    printf("float      : %zu\n", sizeof(float));
+    printf("double     : %zu\n", sizeof(double));
+    printf("uint8_t    : %zu\n", sizeof(uint8_t));
+    printf("uint32_t   : %zu\n", sizeof(uint32_t));
+    printf("uint64_t   : %zu\n", sizeof(uint64_t));
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">الأنواع ثابتة الحجم <span class="tag">stdint.h</span></h3>
+        <p>لما تكتب أي كود بيتعامل مع <b>binary formats</b> أو بروتوكولات أو headers (وده شغلنا)، استخدم أنواع <code>&lt;stdint.h&gt;</code> عشان الحجم يبقى مضمون على أي منصة:</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>النوع</th><th>الحجم</th><th>المقابل في Windows</th><th>printf (من <code>&lt;inttypes.h&gt;</code>)</th></tr></thead>
+            <tbody>
+              <tr><td><code>uint8_t</code> / <code>int8_t</code></td><td>1 byte</td><td><code>BYTE</code> / <code>CHAR</code></td><td><code>"%" PRIu8</code></td></tr>
+              <tr><td><code>uint16_t</code></td><td>2 bytes</td><td><code>WORD</code></td><td><code>"%" PRIu16</code></td></tr>
+              <tr><td><code>uint32_t</code></td><td>4 bytes</td><td><code>DWORD</code></td><td><code>"%" PRIu32</code> / <code>PRIx32</code></td></tr>
+              <tr><td><code>uint64_t</code></td><td>8 bytes</td><td><code>QWORD</code> / <code>ULONGLONG</code></td><td><code>"%" PRIu64</code> / <code>PRIx64</code></td></tr>
+              <tr><td><code>uintptr_t</code></td><td>حجم pointer</td><td><code>ULONG_PTR</code></td><td><code>"%" PRIxPTR</code></td></tr>
+              <tr><td><code>size_t</code></td><td>حجم pointer (unsigned)</td><td><code>SIZE_T</code></td><td><code>%zu</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">Signed vs Unsigned و Two's Complement <span class="tag">negative numbers</span></h3>
+        <p>الـ CPU مش بيعرف "سالب". الأرقام السالبة بتتخزن بنظام <b>Two's Complement</b>: عشان تجيب <code>-x</code>: اقلب كل الـ bits (<code>~x</code>) وزوّد 1. النتيجة: <b>نفس الـ bits ليها معنيين</b> حسب ما تقراها signed ولا unsigned.</p>
+        <div class="mem">
+          <div class="mem-title">8-bit two's complement — نفس الـ bits، قراءتين</div>
+          <div class="mem-row"><span class="addr">0000 0001</span><span class="val">0x01</span><span class="what">unsigned = 1 · signed = 1</span></div>
+          <div class="mem-row"><span class="addr">0111 1111</span><span class="val">0x7F</span><span class="what">unsigned = 127 · signed = 127 (أكبر موجب)</span></div>
+          <div class="mem-row warn"><span class="addr">1000 0000</span><span class="val">0x80</span><span class="what">unsigned = 128 · signed = -128 (أصغر سالب)</span></div>
+          <div class="mem-row warn"><span class="addr">1111 1110</span><span class="val">0xFE</span><span class="what">unsigned = 254 · signed = -2</span></div>
+          <div class="mem-row warn"><span class="addr">1111 1111</span><span class="val">0xFF</span><span class="what">unsigned = 255 · signed = -1</span></div>
+          <div class="mem-cap">قاعدة سريعة: لو أعلى bit (الـ sign bit) = 1، يبقى الرقم سالب في القراءة الـ signed.</div>
+        </div>
+        <c-example file="twos_complement.c">
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    int8_t  s = -1;
+    uint8_t u = (uint8_t)s;          /* same bits, unsigned view */
+    printf("int8 -1 as uint8   = %u (0x%02X)\n", u, u);
+
+    int32_t neg = -2;
+    printf("int32 -2 in hex    = 0x%08X\n", (uint32_t)neg);
+    printf("~5 + 1             = %d\n", ~5 + 1);
+
+    uint32_t big = 0xFFFFFFF6u;
+    printf("0xFFFFFFF6 signed  = %d\n", (int32_t)big);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">الـ Overflow: الـ unsigned بيلف، والـ signed خطر <span class="tag">wraparound</span></h3>
+        <ul>
+          <li><b>Unsigned overflow</b> = سلوك <b>محدد</b>: الحساب بيتم modulo 2ⁿ. <code>255 + 1</code> في <code>uint8_t</code> = <code>0</code>، و<code>0 - 1</code> = <code>255</code>.</li>
+          <li><b>Signed overflow</b> = <b>Undefined Behavior</b>! المعيار مبيضمنش أي نتيجة، والـ compiler بيفترض إنه مبيحصلش (وبيعمل optimization على الأساس ده). على الـ hardware غالبًا بيلف، بس متعتمدش على ده أبدًا.</li>
+        </ul>
+        <c-example file="overflow.c">
+#include <stdio.h>
+#include <stdint.h>
+#include <limits.h>
+
+int main(void) {
+    uint8_t  counter = 250;
+    for (int i = 0; i < 10; i++) counter++;          /* wraps at 256 */
+    printf("uint8 250 + 10      = %u\n", counter);
+
+    unsigned int zero = 0;
+    printf("unsigned 0 - 1      = %u\n", zero - 1);   /* UINT_MAX */
+
+    printf("INT_MAX             = %d\n", INT_MAX);
+    printf("INT_MIN             = %d\n", INT_MIN);
+
+    /* Safe check BEFORE adding, never after */
+    int a = INT_MAX, b = 1;
+    if (b > 0 && a > INT_MAX - b)
+        printf("a + b would overflow -> refused\n");
+    return 0;
+}
+        </c-example>
+        <div class="callout danger"><span class="ci">💥</span><div><strong>Integer overflow = ثغرة</strong><p>لما حساب حجم (مثلًا <code>count * sizeof(item)</code>) يعمل overflow، الناتج بيبقى رقم صغير، فبيتحجز buffer صغير، وبعدين بيتكتب فيه بيانات كتير ← <b>heap overflow</b>. ثغرات كتير حقيقية بدأت كده. اتعلم تشوف الحسابات دي في الـ Assembly قبل <code>malloc</code>.</p></div></div>
+
+        <h3 class="sub">Endianness: ترتيب الـ bytes في الذاكرة <span class="tag">little-endian</span></h3>
+        <p>x86 و x64 و (افتراضيًا) ARM كلهم <b>Little-Endian</b>: <b>الـ byte الأصغر قيمةً بيتخزن الأول</b> (في العنوان الأصغر). فالرقم <code>0x11223344</code> بيتخزن في الذاكرة كده: <code>44 33 22 11</code>. الـ network protocols بتستخدم Big-Endian (اسمه "network byte order").</p>
+        <div class="mem">
+          <div class="mem-title">uint32_t x = 0x11223344; — في الذاكرة (x86)</div>
+          <div class="mem-row hl"><span class="addr">&amp;x + 0</span><span class="val">0x44</span><span class="what">الـ byte الأقل أهمية (LSB) الأول</span></div>
+          <div class="mem-row"><span class="addr">&amp;x + 1</span><span class="val">0x33</span><span class="what"></span></div>
+          <div class="mem-row"><span class="addr">&amp;x + 2</span><span class="val">0x22</span><span class="what"></span></div>
+          <div class="mem-row"><span class="addr">&amp;x + 3</span><span class="val">0x11</span><span class="what">الـ byte الأكثر أهمية (MSB) الآخر</span></div>
+        </div>
+        <c-example file="endianness.c">
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    uint32_t x = 0x11223344;
+    unsigned char *p = (unsigned char *)&x;   /* look at the raw bytes */
+
+    printf("value : 0x%08X\n", x);
+    printf("bytes :");
+    for (size_t i = 0; i < sizeof x; i++)
+        printf(" %02X", p[i]);
+    printf("\n");
+
+    /* 'MZ' magic of a PE file read as a little-endian WORD */
+    unsigned char header[2] = { 0x4D, 0x5A };          /* 'M' 'Z' */
+    uint16_t magic = (uint16_t)(header[0] | (header[1] << 8));
+    printf("MZ as uint16 = 0x%04X\n", magic);         /* 0x5A4D */
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>هتشوف ده في كل hex editor</strong><p>في ملف PE، أول 2 bytes هما <code>4D 5A</code> ("MZ")، لكن لو قريتهم كـ WORD هيبقوا <code>0x5A4D</code> — وده بالظبط الثابت <code>IMAGE_DOS_SIGNATURE</code> اللي بتلاقيه في كود الـ malware اللي بيدور على PE headers في الذاكرة: <code>cmp word ptr [rax], 5A4Dh</code>. نفس الكلام للـ strings الصغيرة المخزنة كأرقام: <code>mov eax, 6C6C6568h</code> = <code>"hell"</code> مقلوبة!</p></div></div>
+
+        <h3 class="sub">char = رقم صغير <span class="tag">ASCII</span></h3>
+        <p><code>char</code> في C مجرد <b>integer بحجم byte</b>. <code>'A'</code> هي بالظبط الرقم 65. ده بيخلي العمليات على الحروف حسابات عادية — وده اللي بيعمله أي string decoder في الـ malware.</p>
+        <c-example file="chars.c">
+#include <stdio.h>
+
+int main(void) {
+    char c = 'A';
+    printf("'%c' = %d = 0x%X\n", c, c, c);
+    printf("'A' + 2 = '%c'\n", c + 2);
+    printf("'7' - '0' = %d   (digit char -> number)\n", '7' - '0');
+    printf("lower: '%c'  ('A' | 0x20)\n", 'A' | 0x20);
+    printf("upper: '%c'  ('a' & ~0x20)\n", 'a' & ~0x20);
+
+    /* Escape sequences are single bytes too */
+    printf("\\n=%d \\t=%d \\0=%d \\x41='%c'\n", '\n', '\t', '\0', '\x41');
+    return 0;
+}
+        </c-example>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>char signed ولا unsigned؟</strong><p>المعيار سايبها للمنصة! على x86 (gcc/MSVC) <code>char</code> = signed، وعلى ARM Linux غالبًا unsigned. لو بتتعامل مع bytes خام (ملفات، shellcode، buffers) استخدم دايمًا <code>unsigned char</code> أو <code>uint8_t</code> — وإلا <code>0xFF</code> هيبقى <code>-1</code> ويبوظ مقارناتك.</p></div></div>
+
+        <h3 class="sub">التحويلات: Truncation و Sign Extension <span class="tag">casts</span></h3>
+        <p>لما تحوّل من نوع كبير لصغير، الـ bits العليا <b>بتتقص</b> (truncation). ولما تحوّل من صغير لكبير: الـ unsigned بيتملا أصفار (<b>zero extension</b>)، والـ signed بيتملا بنسخة من الـ sign bit (<b>sign extension</b>).</p>
+        <c-example file="conversions.c">
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    uint32_t big = 0x12345678;
+    uint8_t  low = (uint8_t)big;              /* truncation: keeps 0x78 */
+    printf("truncate 0x%08X -> 0x%02X\n", big, low);
+
+    int8_t   sb = (int8_t)0xF0;               /* -16 */
+    uint8_t  ub = 0xF0;                       /* 240 */
+    int32_t  s32 = sb;                        /* sign-extended  -> movsx */
+    uint32_t u32 = ub;                        /* zero-extended  -> movzx */
+    printf("sign-extend 0xF0 -> 0x%08X (%d)\n", (uint32_t)s32, s32);
+    printf("zero-extend 0xF0 -> 0x%08X (%u)\n", u32, u32);
+
+    double d = 3.99;
+    printf("(int)3.99 = %d   (truncates toward zero)\n", (int)d);
+    printf("(int)-3.99 = %d\n", (int)-3.99);
+    printf("7 / 2 = %d, 7 / 2.0 = %.1f, 7 %% 2 = %d, -7 / 2 = %d, -7 %% 2 = %d\n",
+           7 / 2, 7 / 2.0, 7 % 2, -7 / 2, -7 % 2);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>movsx vs movzx بيكشفلك النوع</strong><p>اضغط <b>⚙ ASM</b> على المثال اللي فوق. لما تشوف <code>movsx</code> (sign-extend) يبقى المتغير الأصلي <b>signed</b>، ولما تشوف <code>movzx</code> يبقى <b>unsigned</b>. ده من أهم الأدلة اللي بتستخدمها عشان تحدد أنواع المتغيرات في Ghidra وتصححها.</p></div></div>
+
+        <h3 class="sub">فخ المقارنة بين signed و unsigned <span class="tag">usual arithmetic conversions</span></h3>
+        <p>لما تعمل عملية بين <code>int</code> و<code>unsigned int</code>، الـ <code>int</code> بيتحوّل لـ <code>unsigned</code> الأول! فـ <code>-1</code> بيبقى <code>4294967295</code>. والأنواع الأصغر من <code>int</code> (<code>char</code> و<code>short</code>) بتتحول لـ <code>int</code> قبل أي عملية (<b>integer promotion</b>).</p>
+        <c-example file="sign_compare.c" allow-warn>
+#include <stdio.h>
+
+int main(void) {
+    int          a = -1;
+    unsigned int b = 1;
+
+    if (a < b)
+        printf("-1 < 1u : true\n");
+    else
+        printf("-1 < 1u : FALSE!  (-1 became %u)\n", (unsigned int)a);
+
+    /* Promotion: chars become int before arithmetic */
+    unsigned char x = 200, y = 100;
+    int sum = x + y;                 /* 300, no wrap: computed as int */
+    unsigned char wrapped = x + y;   /* stored back in 8 bits: 44 */
+    printf("x + y as int = %d, stored in uchar = %d\n", sum, wrapped);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>jl ولا jb؟</strong><p>الـ CPU عنده instructions مقارنة مختلفة: <code>jl/jg/jle/jge</code> للـ <b>signed</b>، و<code>jb/ja/jbe/jae</code> للـ <b>unsigned</b>. لما تشوف <code>jb</code> بعد <code>cmp</code> في check على طول buffer، يبقى الطول unsigned. ولو شفت <code>jl</code> على طول جاي من المستخدم… ممكن تكون لقيت ثغرة: طول سالب هيعدّي الـ check.</p></div></div>
+
+        <h3 class="sub">Floating Point من جوه <span class="tag">IEEE-754</span></h3>
+        <p><code>float</code> = 32 bit: <b>1 sign + 8 exponent + 23 mantissa</b>. <code>double</code> = 64 bit (1 + 11 + 52). الأعداد العشرية زي <code>0.1</code> مش بتتمثل بدقة! ومتقارنش floats بـ <code>==</code> أبدًا.</p>
+        <c-example file="float_bits.c">
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+int main(void) {
+    float f = 1.0f;
+    uint32_t bits;
+    memcpy(&bits, &f, sizeof bits);       /* safe way to view raw bits */
+    printf("1.0f  -> 0x%08X\n", bits);
+
+    f = -2.5f;
+    memcpy(&bits, &f, sizeof bits);
+    printf("-2.5f -> 0x%08X\n", bits);
+
+    double sum = 0.1 + 0.2;
+    printf("0.1 + 0.2 = %.17f\n", sum);
+    printf("0.1 + 0.2 == 0.3 ? %s\n", sum == 0.3 ? "yes" : "no");
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>علّم نفسك تعرف الـ floats في الـ hex</strong><p><code>0x3F800000</code> = <code>1.0f</code>، و<code>0x40000000</code> = <code>2.0f</code>، و<code>0x3FF0000000000000</code> = <code>1.0</code> (double). لو شفت ثوابت زي دي في الـ <code>.rdata</code> أو instructions زي <code>movss</code>/<code>movsd</code>/<code>cvtsi2sd</code>، يبقى فيه حسابات float.</p></div></div>
+
+        <h3 class="sub">التعريف، القيم الابتدائية، و const <span class="tag">declarations</span></h3>
+        <c-example file="declarations.c">
+#include <stdio.h>
+
+int global_counter;              /* globals are zero-initialised (.bss) */
+const int MAX_RETRIES = 3;       /* read-only (.rodata)                 */
+
+int main(void) {
+    int a = 10, b = 0x1F, c = 017;   /* decimal, hex, octal (leading 0!) */
+    unsigned long long big = 0xDEADBEEFCAFEBABEULL;
+    char letter = 'Z';
+    int local;                       /* local: NOT initialised -> garbage */
+    local = 5;                       /* always assign before use          */
+
+    printf("%d %d %d\n", a, b, c);
+    printf("0x%llX\n", big);
+    printf("%c %d %d %d\n", letter, global_counter, MAX_RETRIES, local);
+    return 0;
+}
+        </c-example>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>الصفر في الأول = octal!</strong><p><code>017</code> مش 17، ده <b>15</b> (octal). غلطة كلاسيكية في كود الـ permissions والـ masks. والمتغيرات المحلية مش متصفّرة — قيمتها أي حاجة كانت في الـ stack (وده ممكن يسرّب بيانات: <b>uninitialized memory disclosure</b>).</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 02</h3></div>
+
+          <quiz id="s02-q1" answer="1">
+            <q>إيه قيمة <code>sizeof(long)</code> في برنامج 64-bit متعمله compile لـ <b>Windows</b> بـ MSVC؟</q>
+            <o>8</o>
+            <o>4</o>
+            <o>2</o>
+            <o>بتختلف كل مرة</o>
+            <good>Windows بيستخدم <b>LLP64</b>: <code>int</code> و<code>long</code> = 4 bytes، و<code>long long</code> والـ pointers = 8. على Linux (LP64) الـ <code>long</code> = 8.</good>
+            <bad>افتكر الفرق بين LP64 (Linux) وLLP64 (Windows).</bad>
+          </quiz>
+
+          <quiz id="s02-q2" answer="3">
+            <q>في dump للذاكرة على x86 لقيت الـ bytes دي لمتغير <code>uint32_t</code>: <code>EF BE AD DE</code>. قيمته إيه؟</q>
+            <o><code>0xEFBEADDE</code></o>
+            <o><code>0xBEEFDEAD</code></o>
+            <o><code>0xADDEEFBE</code></o>
+            <o><code>0xDEADBEEF</code></o>
+            <good>Little-endian: أول byte في الذاكرة هو الأقل أهمية، فبتقرا من الآخر للأول: <code>DE AD BE EF</code>.</good>
+            <bad>في little-endian الـ byte الأول في الذاكرة = الـ LSB. اقلب ترتيب الـ bytes.</bad>
+          </quiz>
+
+          <quiz id="s02-q3" answer="0">
+            <q>الـ byte <code>0xFE</code> لو اتقرا كـ <code>int8_t</code> (signed) قيمته...</q>
+            <o><code>-2</code></o>
+            <o><code>254</code></o>
+            <o><code>-254</code></o>
+            <o><code>-1</code></o>
+            <good>الـ sign bit = 1 فالرقم سالب. <code>~0xFE + 1 = 0x01 + 1 = 2</code>، فالقيمة <code>-2</code>.</good>
+            <bad>طبّق two's complement: اقلب الـ bits وزوّد 1 عشان تعرف المقدار.</bad>
+          </quiz>
+
+          <quiz id="s02-q4" answer="2">
+            <q>هيطبع إيه؟<pre-c>
+unsigned int len = 0;
+len = len - 1;
+printf("%u", len);
+            </pre-c></q>
+            <o><code>-1</code></o>
+            <o><code>0</code></o>
+            <o><code>4294967295</code></o>
+            <o>Undefined behavior</o>
+            <good>الـ unsigned overflow سلوكه <b>محدد</b>: بيلف modulo 2³². <code>0 - 1 = UINT_MAX = 4294967295</code>. (لو كان signed كان هيبقى UB.)</good>
+            <bad>الـ unsigned مبيبقاش سالب أبدًا، وبيلف. و الـ wraparound للـ unsigned مش UB.</bad>
+          </quiz>
+
+          <quiz id="s02-q5" answer="1">
+            <q>شفت في الـ disassembly: <code>movsx eax, byte ptr [rbp-1]</code>. ده بيقولك إيه عن المتغير؟</q>
+            <o>إنه <code>unsigned char</code></o>
+            <o>إنه signed بحجم byte (زي <code>char</code> أو <code>int8_t</code>) واتحوّل لـ 32-bit بـ sign extension</o>
+            <o>إنه pointer</o>
+            <o>إنه <code>float</code></o>
+            <good><code>movsx</code> = move with sign-extension، وبيتولد لما تحوّل نوع signed صغير لنوع أكبر. الـ unsigned كان هيدي <code>movzx</code>.</good>
+            <bad>الـ <b>sx</b> في <code>movsx</code> معناها sign-extend.</bad>
+          </quiz>
+
+          <quiz id="s02-q6" answer="3">
+            <q>نتيجة <code>(-1 &lt; 1u)</code> في C إيه؟</q>
+            <o><code>1</code> (true) لأن -1 أصغر من 1</o>
+            <o>compile error</o>
+            <o>Undefined behavior</o>
+            <o><code>0</code> (false) لأن -1 بيتحوّل لـ unsigned ويبقى 4294967295</o>
+            <good>الـ usual arithmetic conversions بتحوّل الـ <code>int</code> لـ <code>unsigned int</code>، و<code>-1</code> يبقى <code>UINT_MAX</code>. (والـ compiler بيطلع warning بـ <code>-Wextra</code>.)</good>
+            <bad>فكّر: مين بيتحوّل لمين لما تقارن signed بـ unsigned من نفس الحجم؟</bad>
+          </quiz>
+
+          <quiz id="s02-q7" answer="2">
+            <q>في الـ assembly لقيت <code>mov dword ptr [rbp-8], 6C6C6568h</code> وبعدها <code>mov byte ptr [rbp-4], 6Fh</code>. الـ bytes دي بتمثل إيه في الذاكرة؟</q>
+            <o>الرقم 1819043176 بس</o>
+            <o>النص <code>"llehx"</code></o>
+            <o>النص <code>"hello"</code> (stack string)</o>
+            <o>عنوان دالة</o>
+            <good>Little-endian: <code>6C6C6568h</code> يتخزن <code>68 65 6C 6C</code> = <code>"hell"</code>، وبعده <code>6F</code> = <code>'o'</code>. ده تكنيك <b>stack strings</b> اللي الـ malware بيستخدمه عشان يخبي النصوص من أداة <code>strings</code>.</good>
+            <bad>حوّل كل byte لحرف ASCII، وافتكر إن الـ bytes بتتخزن بالعكس (little-endian).</bad>
+          </quiz>
+
+          <quiz id="s02-q8" answer="0">
+            <q>قيمة الثابت <code>010 + 0x10</code> بالـ decimal؟</q>
+            <o><code>24</code></o>
+            <o><code>20</code></o>
+            <o><code>26</code></o>
+            <o><code>18</code></o>
+            <good><code>010</code> octal = 8، و<code>0x10</code> hex = 16. المجموع 24.</good>
+            <bad>الصفر في الأول معناه octal، و<code>0x</code> معناه hex.</bad>
+          </quiz>
+
+          <challenge id="s02-c1" title="Byte Swap: من little لـ big endian">
+            <desc>اكتب دالة <code>uint32_t bswap32(uint32_t x)</code> بتعكس ترتيب الـ 4 bytes (من غير مكتبات)، باستخدام الـ shifts والـ masks. واطبع النتيجة لـ <code>0x11223344</code> و<code>0xDEADBEEF</code> بالشكل ده:<br><code>0x11223344 -> 0x44332211</code><br><code>0xDEADBEEF -> 0xEFBEADDE</code><br>تلميح: <code>(x &gt;&gt; 24) &amp; 0xFF</code> بيجيب الـ byte الأعلى.</desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+uint32_t bswap32(uint32_t x) {
+    // TODO: move each byte to its mirrored position
+    return x;
+}
+
+int main(void) {
+    uint32_t tests[] = { 0x11223344, 0xDEADBEEF };
+    for (int i = 0; i < 2; i++)
+        printf("0x%08X -> 0x%08X\n", tests[i], bswap32(tests[i]));
+    return 0;
+}
+            </starter>
+            <expected>
+0x11223344 -> 0x44332211
+0xDEADBEEF -> 0xEFBEADDE
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+uint32_t bswap32(uint32_t x) {
+    return ((x >> 24) & 0x000000FFu) |
+           ((x >>  8) & 0x0000FF00u) |
+           ((x <<  8) & 0x00FF0000u) |
+           ((x << 24) & 0xFF000000u);
+}
+
+int main(void) {
+    uint32_t tests[] = { 0x11223344, 0xDEADBEEF };
+    for (int i = 0; i < 2; i++)
+        printf("0x%08X -> 0x%08X\n", tests[i], bswap32(tests[i]));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s02-c2" title="اقرأ الـ bytes الخام" level="2">
+            <desc>عندك buffer من 8 bytes (زي ما هيبقى في ملف). اقرأ منه بنفسك (من غير cast للـ pointer) قيمتين <b>little-endian</b>: <code>uint16_t</code> من offset 0، و<code>uint32_t</code> من offset 4، واطبع:<br><code>u16 @0 = 0x5A4D</code><br><code>u32 @4 = 0x00004550</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    const uint8_t buf[8] = { 0x4D, 0x5A, 0x90, 0x00, 0x50, 0x45, 0x00, 0x00 };
+    uint16_t u16 = 0;   // TODO: build from buf[0], buf[1]
+    uint32_t u32 = 0;   // TODO: build from buf[4..7]
+
+    printf("u16 @0 = 0x%04X\n", u16);
+    printf("u32 @4 = 0x%08X\n", u32);
+    return 0;
+}
+            </starter>
+            <expected>
+u16 @0 = 0x5A4D
+u32 @4 = 0x00004550
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    const uint8_t buf[8] = { 0x4D, 0x5A, 0x90, 0x00, 0x50, 0x45, 0x00, 0x00 };
+    uint16_t u16 = (uint16_t)(buf[0] | (buf[1] << 8));
+    uint32_t u32 = (uint32_t)buf[4]         |
+                   ((uint32_t)buf[5] << 8)  |
+                   ((uint32_t)buf[6] << 16) |
+                   ((uint32_t)buf[7] << 24);
+
+    printf("u16 @0 = 0x%04X\n", u16);
+    printf("u32 @4 = 0x%08X\n", u32);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s02-c3" title="فك الـ Stack String">
+            <desc>الـ malware خزّن نص على شكل رقمين 32-bit. اطبع الـ 8 حروف عن طريق استخراج كل byte بالترتيب الصح للذاكرة (little-endian: الـ byte الأصغر الأول). القيمتين: <code>0x6E72656B</code> و<code>0x32336C65</code>. الناتج المطلوب:<br><code>kernel32</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    uint32_t parts[2] = { 0x6E72656B, 0x32336C65 };
+    // TODO: print each byte as a char, lowest byte first
+
+    printf("\n");
+    return 0;
+}
+            </starter>
+            <expected>
+kernel32
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    uint32_t parts[2] = { 0x6E72656B, 0x32336C65 };
+    for (int i = 0; i < 2; i++)
+        for (int b = 0; b < 4; b++)
+            putchar((int)((parts[i] >> (8 * b)) & 0xFF));
+    printf("\n");
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

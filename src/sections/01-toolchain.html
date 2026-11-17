@@ -1,0 +1,306 @@
+      <section class="section" id="s01" data-part="الجزء 1 · الأساسيات" data-nav="الأدوات والـ Compilation" data-icon="🚀" data-keywords="gcc clang msvc install msys2 compile compilation preprocess assemble link hello world main printf return exit code flags wall">
+        <div class="section-head">
+          <span class="section-index">01</span>
+          <div>
+            <p class="eyebrow">المرحلة الأولى</p>
+            <h2>الأدوات، أول برنامج، ورحلة الكود لحد الـ Binary</h2>
+            <p class="lede">C لغة <b>compiled</b>: الكود اللي بتكتبه بيتحوّل مرة واحدة لـ <b>machine code</b> الـ CPU بينفذه مباشرة — مفيش interpreter في النص. ده بالظبط سبب إن الـ Reverser بيشتغل على الـ binary: الكود الأصلي <b>اختفى</b>، واللي فاضل هو تعليمات الـ CPU.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">الـ Compilers الأساسية <span class="tag">toolchains</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ Compiler</th><th>بيستخدم فين</th><th>ليه يهمك كـ Reverser</th></tr></thead>
+            <tbody>
+              <tr><td><b>GCC</b></td><td>Linux، وعلى Windows عن طريق MinGW-w64</td><td>أغلب الـ Linux malware والـ IoT botnets. وفيه Windows malware مبني بـ MinGW (هتعرفه من الـ runtime functions بتاعته)</td></tr>
+              <tr><td><b>MSVC</b> (cl.exe)</td><td>Visual Studio على Windows</td><td>أغلب الـ Windows malware. ليه "بصمة" مميزة: الـ CRT startup، الـ Rich header، الـ security cookie</td></tr>
+              <tr><td><b>Clang/LLVM</b></td><td>macOS، Android NDK، وكمان Windows</td><td>الـ macOS malware، والـ obfuscators المبنية على LLVM (زي OLLVM) — control-flow flattening</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">التثبيت على Windows <span class="tag">MSYS2 + gcc</span></h3>
+        <div class="steps">
+          <div class="step"><span class="n">01</span><div><h4>نزّل MSYS2</h4><p>من <a href="https://www.msys2.org/" target="_blank" rel="noopener">msys2.org</a> وثبّته في المسار الافتراضي <code>C:\msys64</code>.</p></div></div>
+          <div class="step"><span class="n">02</span><div><h4>ثبّت gcc</h4><p>افتح <b>MSYS2 UCRT64</b> واكتب: <code>pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gdb</code></p></div></div>
+          <div class="step"><span class="n">03</span><div><h4>ضيفه للـ PATH</h4><p>ضيف <code>C:\msys64\ucrt64\bin</code> لمتغير الـ PATH، وبعدها من أي Terminal: <code>gcc --version</code>.</p></div></div>
+          <div class="step"><span class="n">04</span><div><h4>المحرر</h4><p>VS Code + إضافة <b>C/C++</b> من Microsoft. وبعدين هتحتاج (في المرحلة 13+): <b>x64dbg</b>، <b>Ghidra</b>، و<b>IDA Free</b>.</p></div></div>
+        </div>
+        <div class="callout tip"><span class="ci">🐧</span><div><strong>Linux / WSL</strong><p>على Ubuntu أو WSL: <code>sudo apt install build-essential gdb</code> — وده هيديك نفس البيئة اللي الأمثلة هنا بتتشغل عليها (Linux x86-64).</p></div></div>
+
+        <h3 class="sub">أول برنامج — وتشريحه سطر بسطر <span class="tag">hello.c</span></h3>
+        <c-example file="hello.c">
+#include <stdio.h>   // bring in the declaration of printf
+
+int main(void) {     // execution of YOUR code starts here
+    printf("Hello, Reverser!\n");
+    return 0;        // exit code 0 = success
+}
+        </c-example>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>السطر</th><th>معناه بالظبط</th></tr></thead>
+            <tbody>
+              <tr><td><code>#include &lt;stdio.h&gt;</code></td><td>أمر للـ <b>preprocessor</b>: "انسخ محتوى الملف ده هنا". الملف فيه <b>إعلان</b> (declaration) لـ <code>printf</code> — مش الكود بتاعها. الكود نفسه في مكتبة الـ C (libc / ucrtbase.dll).</td></tr>
+              <tr><td><code>int main(void)</code></td><td>الدالة اللي بيبدأ منها <b>كودك</b>. <code>int</code> = بترجع رقم صحيح (الـ exit code). <code>void</code> = مش بتاخد parameters.</td></tr>
+              <tr><td><code>{ ... }</code></td><td>الـ block: جسم الدالة.</td></tr>
+              <tr><td><code>printf(...)</code></td><td>بتطبع نص منسّق. <code>\n</code> = سطر جديد (byte قيمته <code>0x0A</code>).</td></tr>
+              <tr><td><code>;</code></td><td>كل statement لازم يخلص بـ <code>;</code>.</td></tr>
+              <tr><td><code>return 0;</code></td><td>بيرجّع 0 لنظام التشغيل = "كله تمام". أي رقم تاني = فيه مشكلة.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout re"><span class="ci">🔬</span><div><strong>عين الـ Reverser: main مش أول حاجة بتتنفذ</strong><p>الـ <b>Entry Point</b> الحقيقي للـ binary مش <code>main</code>. الـ compiler بيحط قبلها كود اسمه <b>CRT startup</b> (على Linux: <code>_start</code> ← <code>__libc_start_main</code>، وعلى MSVC: <code>mainCRTStartup</code>) بيجهّز الـ heap والـ arguments، وبعدين ينادي <code>main</code>. أول مهارة في IDA/Ghidra: <b>تعدّي الـ startup وتلاقي main</b>. علامة مميزة: <code>main</code> بتتنادى بـ 3 arguments (<code>argc</code>, <code>argv</code>, <code>envp</code>) وقيمتها الراجعة بتتبعت لـ <code>exit()</code>.</p></div></div>
+
+        <h3 class="sub">الأربع مراحل: من .c لـ .exe <span class="tag">pipeline</span></h3>
+        <div class="pipeline">
+          <div class="stage"><b>1. Preprocess</b><code>gcc -E hello.c</code><small>بينفّذ <code>#include</code> و<code>#define</code>، وبيشيل التعليقات. الناتج: C "صافي".</small></div>
+          <div class="arrow">→</div>
+          <div class="stage"><b>2. Compile</b><code>gcc -S hello.c</code><small>بيحوّل C لـ <b>Assembly</b> (ملف <code>.s</code>). هنا بيحصل الـ optimization.</small></div>
+          <div class="arrow">→</div>
+          <div class="stage"><b>3. Assemble</b><code>gcc -c hello.c</code><small>بيحوّل الـ Assembly لـ <b>machine code</b> في <b>object file</b> (<code>.o</code> / <code>.obj</code>).</small></div>
+          <div class="arrow">→</div>
+          <div class="stage"><b>4. Link</b><code>gcc hello.o -o hello</code><small>بيربط الـ object files بالمكتبات وبيطلّع الـ <b>executable</b> (ELF على Linux، PE على Windows).</small></div>
+        </div>
+        <plain-block file="terminal" lang="bash">
+# See each stage yourself
+gcc -E hello.c -o hello.i           # 1) preprocessed C
+gcc -S -masm=intel hello.c          # 2) assembly in Intel syntax -> hello.s
+gcc -c hello.c -o hello.o           # 3) object file (machine code, not linked)
+gcc hello.o -o hello                # 4) link -> executable
+
+# The everyday command (all 4 stages at once)
+gcc -std=c17 -Wall -Wextra -g -O0 hello.c -o hello
+./hello                             # Linux / WSL
+hello.exe                           # Windows
+
+# Inspect what you built
+objdump -d -M intel hello.o         # disassemble
+strings hello                       # printable strings inside the binary
+        </plain-block>
+
+        <h3 class="sub">الـ Flags اللي لازم تحفظها <span class="tag">gcc</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ Flag</th><th>الوظيفة</th><th>ملاحظة للـ RE</th></tr></thead>
+            <tbody>
+              <tr><td><code>-std=c17</code></td><td>استخدم معيار C17</td><td>—</td></tr>
+              <tr><td><code>-Wall -Wextra</code></td><td>شغّل التحذيرات المهمة</td><td>دايمًا. التحذير غالبًا = bug</td></tr>
+              <tr><td><code>-O0</code></td><td>من غير optimization</td><td>الـ Assembly بيبقى "حرفي" وسهل تقارنه بالكود — ابدأ بيه</td></tr>
+              <tr><td><code>-O2</code> / <code>-O3</code> / <code>-Os</code></td><td>optimization للسرعة / الحجم</td><td>ده اللي هتقابله في الـ malware الحقيقي. الكود بيتغير جدًا</td></tr>
+              <tr><td><code>-g</code></td><td>ضيف debug symbols</td><td>الـ malware الحقيقي نادرًا بيكون فيه symbols (stripped)</td></tr>
+              <tr><td><code>-s</code></td><td>شيل الـ symbols (strip)</td><td>جرّبه وافتح الناتج في Ghidra: أسماء الدوال هتختفي</td></tr>
+              <tr><td><code>-masm=intel</code></td><td>Assembly بصيغة Intel</td><td>الصيغة اللي IDA وx64dbg بيستخدموها</td></tr>
+              <tr><td><code>-fsanitize=address,undefined</code></td><td>اكتشاف أخطاء الذاكرة وقت التشغيل</td><td>أداة ذهبية لاكتشاف الـ bugs (Linux/WSL)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout re"><span class="ci">🔬</span><div><strong>جرّب دلوقتي: الـ compiler غيّر كودك!</strong><p>اضغط <b>⚙ ASM</b> على مثال <code>hello.c</code> فوق. هتلاقي <code>call puts</code> مش <code>call printf</code>! الـ compiler لاحظ إن النص مفيهوش format specifiers وبيخلص بـ <code>\n</code>، فاستبدله بـ <code>puts</code> الأسرع، وشال الـ <code>\n</code> من النص (لأن <code>puts</code> بتضيفه). الدرس: <b>الـ binary مش ترجمة حرفية لكودك</b> — ولما تشوف <code>puts</code> في الـ imports، ممكن الكاتب يكون كتب <code>printf</code>.</p></div></div>
+
+        <h3 class="sub">printf والـ Format Specifiers <span class="tag">output</span></h3>
+        <p><code>printf</code> بتاخد "قالب" نصي فيه علامات <code>%</code>، وكل علامة بتتعوض بقيمة من الـ arguments اللي بعده <b>بالترتيب</b>. لازم نوع الـ specifier يطابق نوع القيمة — وإلا ده <b>Undefined Behavior</b>.</p>
+        <c-example file="printf_demo.c">
+#include <stdio.h>
+
+int main(void) {
+    int age = 25;
+    unsigned int flags = 3735928559u;   /* 0xDEADBEEF */
+    double pi = 3.14159265;
+    char grade = 'A';
+    const char *tool = "Ghidra";
+
+    printf("int      : %d\n", age);
+    printf("unsigned : %u\n", flags);
+    printf("hex      : %x | %X | %#x\n", flags, flags, flags);
+    printf("padded   : [%08x]\n", 0x1337);
+    printf("double   : %f | %.2f | %e\n", pi, pi, pi);
+    printf("char     : %c (code %d)\n", grade, grade);
+    printf("string   : %s\n", tool);
+    printf("width    : [%10s] [%-10s]\n", tool, tool);
+    printf("percent  : 100%%\n");
+    return 0;
+}
+        </c-example>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Specifier</th><th>النوع</th><th>مثال ناتج</th></tr></thead>
+            <tbody>
+              <tr><td><code>%d</code> / <code>%i</code></td><td><code>int</code> (signed)</td><td><code>-42</code></td></tr>
+              <tr><td><code>%u</code></td><td><code>unsigned int</code></td><td><code>42</code></td></tr>
+              <tr><td><code>%x</code> / <code>%X</code></td><td><code>unsigned int</code> بالـ hex</td><td><code>deadbeef</code> / <code>DEADBEEF</code></td></tr>
+              <tr><td><code>%ld</code> <code>%lld</code> <code>%lu</code> <code>%llx</code></td><td><code>long</code> / <code>long long</code> (و unsigned)</td><td>—</td></tr>
+              <tr><td><code>%zu</code></td><td><code>size_t</code> (ناتج <code>sizeof</code>)</td><td><code>8</code></td></tr>
+              <tr><td><code>%c</code></td><td>حرف واحد</td><td><code>A</code></td></tr>
+              <tr><td><code>%s</code></td><td>string (pointer لأول حرف، لحد الـ <code>'\0'</code>)</td><td><code>Ghidra</code></td></tr>
+              <tr><td><code>%p</code></td><td>عنوان (pointer) — لازم يتعمله cast لـ <code>void *</code></td><td><code>0x7ffd5e8c</code></td></tr>
+              <tr><td><code>%f</code> / <code>%e</code> / <code>%g</code></td><td><code>double</code></td><td><code>3.141593</code></td></tr>
+              <tr><td><code>%%</code></td><td>علامة % نفسها</td><td><code>%</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout danger"><span class="ci">⚠️</span><div><strong>Format String Bug</strong><p>متكتبش أبدًا <code>printf(user_input);</code> — لو المستخدم كتب <code>%x %x %x</code> هيقرا قيم من الـ stack، و<code>%n</code> بتكتب في الذاكرة! الصح: <code>printf("%s", user_input);</code>. ده نوع ثغرات حقيقي هنشرحه في المرحلة 15.</p></div></div>
+
+        <h3 class="sub">التعليقات والـ Exit Code <span class="tag">basics</span></h3>
+        <c-example file="exit_code.c" expect-exit="3">
+#include <stdio.h>
+
+/* Multi-line comment:
+   the value returned from main becomes the process exit code. */
+int main(void) {
+    // Single-line comment (C99 and later)
+    puts("Something went wrong, returning 3");
+    return 3;   /* shell: echo $?   |   cmd: echo %ERRORLEVEL% */
+}
+        </c-example>
+        <p>الـ exit code بيتشاف في الـ shell: <code>echo $?</code> على Linux، و<code>echo %ERRORLEVEL%</code> في CMD. في الـ Assembly هتلاقي القيمة دي في الـ register <code>eax</code> قبل الـ <code>ret</code> من <code>main</code>.</p>
+
+        <h3 class="sub">أشهر أخطاء البداية <span class="tag">debug</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>رسالة الـ compiler / المشكلة</th><th>السبب</th><th>الحل</th></tr></thead>
+            <tbody>
+              <tr><td><code>expected ';' before ...</code></td><td>نسيت <code>;</code></td><td>شوف السطر <b>اللي قبل</b> المذكور</td></tr>
+              <tr><td><code>implicit declaration of function 'printf'</code></td><td>نسيت <code>#include &lt;stdio.h&gt;</code></td><td>ضيف الـ header المناسب</td></tr>
+              <tr><td><code>undefined reference to 'foo'</code></td><td>خطأ <b>linker</b>: الدالة متعرفة بس مش موجود تعريفها</td><td>ضيف الملف أو المكتبة في أمر الـ build</td></tr>
+              <tr><td><code>format '%d' expects argument of type 'int'</code></td><td>specifier مش مطابق للنوع</td><td>استخدم الـ specifier الصح</td></tr>
+              <tr><td>البرنامج بيقفل فجأة (Segmentation fault)</td><td>وصول لذاكرة مش مسموح بيها</td><td>هنفهمه بالتفصيل في الـ pointers</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="broken.c" expect-error>
+#include <stdio.h>
+
+int main(void) {
+    printf("Missing semicolon below\n")
+    return 0;
+}
+        </c-example>
+        <p>اضغط <b>تشغيل</b> على الكود ده واقرا رسالة الخطأ: هتلاقي اسم الملف، ورقم السطر والعمود، ووصف المشكلة. <b>اتعود تقرا رسايل الـ compiler من أول رسالة</b> — الأخطاء اللي بعدها غالبًا نتيجة للأولى.</p>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 01</h3></div>
+
+          <quiz id="s01-q1" answer="2">
+            <q>أنهي مرحلة من مراحل الـ build بتحوّل كود C لـ Assembly؟</q>
+            <o>Preprocessing (<code>-E</code>)</o>
+            <o>Linking</o>
+            <o>Compilation (<code>-S</code>)</o>
+            <o>Assembling (<code>-c</code>)</o>
+            <good>الـ compilation هي المرحلة اللي بتطلّع ملف <code>.s</code> فيه Assembly، وهي اللي بيحصل فيها الـ optimization.</good>
+            <bad>الترتيب: preprocess (نص C) ← compile (Assembly) ← assemble (machine code) ← link (executable).</bad>
+          </quiz>
+
+          <quiz id="s01-q2" answer="1">
+            <q>البرنامج عمل compile، لكن ظهر <code>undefined reference to 'calc_key'</code>. المشكلة في أنهي مرحلة؟</q>
+            <o>الـ Preprocessor</o>
+            <o>الـ Linker</o>
+            <o>الـ Compiler</o>
+            <o>وقت التشغيل (runtime)</o>
+            <good>"undefined reference" رسالة <b>linker</b>: الدالة متعلن عنها لكن مفيش object file أو library فيه الكود بتاعها.</good>
+            <bad>الـ compiler اكتفى بالـ declaration. اللي بيدوّر على الكود الفعلي للدالة ويربطه هو الـ linker.</bad>
+          </quiz>
+
+          <quiz id="s01-q3" answer="3">
+            <q>فتحت binary في IDA ولقيت <code>call puts</code> بس، ومفيش <code>printf</code> خالص. إيه الاستنتاج الصح؟</q>
+            <o>الكاتب أكيد استخدم <code>puts</code></o>
+            <o>الـ binary معمول له obfuscation</o>
+            <o>الـ binary مكتوب بـ C++</o>
+            <o>ممكن يكون مكتوب <code>printf("text\n")</code> والـ compiler استبدلها بـ <code>puts</code></o>
+            <good>gcc وclang بيستبدلوا <code>printf</code> بنص ثابت بيخلص بـ <code>\n</code> ومفيهوش <code>%</code> بـ <code>puts</code> — حتى في <code>-O0</code>. الـ binary مش مراية لكودك.</good>
+            <bad>فكّر في الـ optimization اللي شفناه بزرار ASM على <code>hello.c</code>.</bad>
+          </quiz>
+
+          <quiz id="s01-q4" answer="0">
+            <q>إيه الـ specifier الصح لطباعة قيمة من نوع <code>size_t</code> (ناتج <code>sizeof</code>)؟</q>
+            <o><code>%zu</code></o>
+            <o><code>%d</code></o>
+            <o><code>%lu</code> دايمًا</o>
+            <o><code>%s</code></o>
+            <good><code>%zu</code> هو الـ specifier الرسمي لـ <code>size_t</code> على كل المنصات. <code>%lu</code> بيشتغل على Linux 64-bit بس بيبوظ على Windows 64-bit (لأن <code>long</code> هناك 32-bit).</good>
+            <bad>فيه specifier مخصوص لـ <code>size_t</code> بحرف <code>z</code>.</bad>
+          </quiz>
+
+          <quiz id="s01-q5" answer="1">
+            <q>أول instruction بتتنفذ لما الـ OS يشغّل الـ executable هي...</q>
+            <o>أول سطر في <code>main</code></o>
+            <o>الـ Entry Point — غالبًا كود الـ CRT startup اللي بينادي <code>main</code> بعدين</o>
+            <o>أول <code>#include</code></o>
+            <o>دالة <code>printf</code></o>
+            <good>الـ Entry Point (مكتوب في الـ PE/ELF header) بيشاور على كود startup زي <code>_start</code> أو <code>mainCRTStartup</code>، وهو اللي بيجهّز البيئة وينادي <code>main</code>. (والـ malware ممكن يغيّر ده أو يشغّل كود قبله زي TLS callbacks.)</good>
+            <bad><code>main</code> هي بداية <b>كودك</b>، مش بداية الـ <b>process</b>.</bad>
+          </quiz>
+
+          <quiz id="s01-q6" answer="2">
+            <q>هيطبع إيه: <code>printf("[%5d][%-5d][%05d]\n", 42, 42, 42);</code></q>
+            <o><code>[42   ][   42][42000]</code></o>
+            <o><code>[42][42][42]</code></o>
+            <o><code>[   42][42   ][00042]</code></o>
+            <o><code>[00042][42   ][   42]</code></o>
+            <good>الرقم = أقل عرض، والمحاذاة يمين افتراضيًا. <code>-</code> = محاذاة شمال. <code>0</code> = املا بأصفار.</good>
+            <bad>الافتراضي محاذاة لليمين بمسافات. <code>-</code> بيعكسها، و<code>0</code> بيملا بأصفار.</bad>
+          </quiz>
+
+          <challenge id="s01-c1" title="أول برنامج: بطاقة المحلل">
+            <desc>اكتب برنامج يطبع السطور دي بالظبط (لاحظ الـ <code>%</code> في آخر سطر):<br><code>Analyst: Ahmed</code><br><code>Target: sample.exe</code><br><code>Progress: 100%</code></desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    // print the three lines here
+
+    return 0;
+}
+            </starter>
+            <expected>
+Analyst: Ahmed
+Target: sample.exe
+Progress: 100%
+            </expected>
+            <solution>
+#include <stdio.h>
+
+int main(void) {
+    printf("Analyst: %s\n", "Ahmed");
+    printf("Target: %s\n", "sample.exe");
+    printf("Progress: %d%%\n", 100);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s01-c2" title="جدول Hex منسّق">
+            <desc>اطبع القيمة <code>48879</code> بأربع صيغ، كل واحدة في سطر:<br>عشري، hex صغير، hex كبير بـ <code>0x</code> وعرض 8 خانات بأصفار، وoctal:<br><code>dec: 48879</code><br><code>hex: beef</code><br><code>HEX: 0x0000BEEF</code><br><code>oct: 137357</code><br>تلميح: الـ octal specifier هو <code>%o</code>.</desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    unsigned int value = 48879;
+    // your printf calls here
+
+    return 0;
+}
+            </starter>
+            <expected>
+dec: 48879
+hex: beef
+HEX: 0x0000BEEF
+oct: 137357
+            </expected>
+            <solution>
+#include <stdio.h>
+
+int main(void) {
+    unsigned int value = 48879;
+    printf("dec: %u\n", value);
+    printf("hex: %x\n", value);
+    printf("HEX: 0x%08X\n", value);
+    printf("oct: %o\n", value);
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

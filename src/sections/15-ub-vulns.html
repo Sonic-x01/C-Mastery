@@ -1,0 +1,417 @@
+      <section class="section" id="s15" data-part="الجزء 3 · C تحت المجهر" data-nav="UB والثغرات والحمايات" data-icon="🛡️" data-keywords="undefined behavior ub signed overflow buffer overflow stack heap off by one format string use after free double free integer overflow type confusion cwe stack canary stack protector gs nx dep aslr pie cfg cet fortify relro asan ubsan valgrind fuzzing vulnerability">
+        <div class="section-head">
+          <span class="section-index">15</span>
+          <div>
+            <p class="eyebrow">المرحلة الخامسة عشر</p>
+            <h2>Undefined Behavior، فئات الثغرات، والحمايات — بعين المحلل</h2>
+            <p class="lede">كتير من الـ malware بيدخل الأجهزة عن طريق <b>ثغرة</b> في برنامج مكتوب بـ C/C++ (مستند بيستغل PDF reader، صفحة بتستغل المتصفح، packet بتستغل خدمة). عشان تحلل الـ exploit chain أو تكتشف الـ bug في binary، لازم تفهم <b>أنواع أخطاء الذاكرة</b> وإزاي بتبان، وإيه <b>الحمايات</b> اللي الـ OS والـ compiler بيحطوها. المرحلة دي تحليلية ودفاعية.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">Undefined Behavior: العقد اللي الـ Compiler بيصدّقه <span class="tag">UB</span></h3>
+        <p>الـ UB مش "النتيجة هتبقى غريبة". الـ UB معناه إن المعيار <b>مبيقولش أي حاجة</b> عن اللي هيحصل — والـ compiler بيفترض إنه <b>مستحيل يحصل</b>، وبيعمل optimizations على الأساس ده. والنتيجة: checks بتختفي، loops بتبقى لا نهائية، وكود بيتحذف.</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ UB</th><th>مثال</th></tr></thead>
+            <tbody>
+              <tr><td>Signed integer overflow</td><td><code>INT_MAX + 1</code></td></tr>
+              <tr><td>Out-of-bounds access</td><td><code>arr[n]</code> لـ array حجمه n</td></tr>
+              <tr><td>NULL / dangling dereference</td><td><code>*p</code> بعد <code>free(p)</code></td></tr>
+              <tr><td>قراية متغير مش متعمله initialize</td><td><code>int x; return x;</code></td></tr>
+              <tr><td>Shift بعدد سالب أو ≥ العرض</td><td><code>1 &lt;&lt; 32</code> لـ int</td></tr>
+              <tr><td>تعديل متغير مرتين بين sequence points</td><td><code>i = i++ + 1;</code></td></tr>
+              <tr><td>Strict aliasing violation</td><td><code>*(float *)&amp;my_int</code></td></tr>
+              <tr><td>تعديل string literal</td><td><code>char *s = "x"; s[0] = 'y';</code></td></tr>
+              <tr><td>Format specifier غلط</td><td><code>printf("%s", 42);</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="side-by-side">
+          <c-example file="ub_check.c" norun>
+int will_overflow(int x) {
+    if (x + 1 < x)     /* relies on signed overflow */
+        return 1;
+    return 0;
+}
+          </c-example>
+          <asm-block file="ub_check.s (gcc -O2)">
+will_overflow:
+        xor     eax, eax        ; return 0 -- ALWAYS
+        ret                     ; the check is gone!
+; Even at -O0 gcc emits "mov eax, 0":
+; signed overflow "cannot happen", so
+; x + 1 < x is folded to false.
+          </asm-block>
+        </div>
+        <p>الـ check اتشال خالص! لأن الـ signed overflow UB، فالـ compiler استنتج إن <code>x + 1 &lt; x</code> دايمًا false. الطريقة الصح تتحقق <b>قبل</b> العملية:</p>
+        <c-example file="safe_overflow.c">
+#include <stdio.h>
+#include <limits.h>
+#include <stdbool.h>
+
+static bool add_would_overflow(int a, int b) {
+    return (b > 0 && a > INT_MAX - b) || (b < 0 && a < INT_MIN - b);
+}
+
+int main(void) {
+    int tests[][2] = { { 100, 200 }, { INT_MAX, 1 }, { INT_MIN, -1 }, { -5, 3 } };
+    for (int i = 0; i < 4; i++) {
+        int a = tests[i][0], b = tests[i][1];
+        if (add_would_overflow(a, b)) {
+            printf("%11d + %2d -> overflow, refused\n", a, b);
+        } else {
+            printf("%11d + %2d = %d\n", a, b, a + b);
+        }
+    }
+
+    /* GCC/Clang builtin: computes in infinite precision and reports overflow */
+    int r;
+    if (__builtin_add_overflow(INT_MAX, 1, &r))
+        puts("__builtin_add_overflow caught it too");
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">خريطة فئات الثغرات <span class="tag">CWE</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الفئة</th><th>CWE</th><th>النمط في الكود</th><th>إزاي تشوفها في الـ binary</th></tr></thead>
+            <tbody>
+              <tr><td><b>Stack buffer overflow</b></td><td>121</td><td><code>strcpy/sprintf/gets</code> أو loop بيكتب في buffer محلي من غير حد</td><td>buffer على <code>[rbp-X]</code> + copy حجمه من المستخدم</td></tr>
+              <tr><td><b>Heap buffer overflow</b></td><td>122</td><td><code>memcpy(heap_buf, src, user_len)</code></td><td>حجم الـ malloc ≠ حجم الـ copy</td></tr>
+              <tr><td><b>Out-of-bounds read</b></td><td>125</td><td>index من المستخدم من غير check</td><td><code>[base+reg*N]</code> و<code>reg</code> جاي من input</td></tr>
+              <tr><td><b>Off-by-one</b></td><td>193</td><td><code>&lt;=</code> بدل <code>&lt;</code>، أو نسيان مكان الـ <code>'\0'</code></td><td><code>jbe</code>/<code>jle</code> بدل <code>jb</code>/<code>jl</code> في الـ bound</td></tr>
+              <tr><td><b>Integer overflow → overflow</b></td><td>190 → 122</td><td><code>malloc(n * size)</code></td><td><code>imul</code>/<code>shl</code> قبل <code>malloc</code> من غير check</td></tr>
+              <tr><td><b>Signedness bug</b></td><td>195</td><td>طول <code>int</code> سالب يعدّي <code>if (len &lt; max)</code></td><td><code>jl/jg</code> على طول، وبعدها <code>memcpy</code> (اللي بتاخد size_t)</td></tr>
+              <tr><td><b>Use-After-Free</b></td><td>416</td><td>pointer بيتستخدم بعد <code>free</code></td><td>صعب static — dynamic analysis / ASan</td></tr>
+              <tr><td><b>Double free</b></td><td>415</td><td><code>free</code> مرتين في error paths</td><td>مسارين بيوصلوا لـ <code>free</code> لنفس الـ pointer</td></tr>
+              <tr><td><b>Format string</b></td><td>134</td><td><code>printf(user)</code></td><td><code>printf</code> وأول arg (<code>rdi</code>/<code>rcx</code>) جاي من input مش من <code>.rodata</code></td></tr>
+              <tr><td><b>Type confusion</b></td><td>843</td><td>object بيتعامل كنوع تاني</td><td>tagged unions / C++ casts غلط</td></tr>
+              <tr><td><b>NULL deref</b></td><td>476</td><td>مفيش check على نتيجة <code>malloc</code>/lookup</td><td>crash على عنوان صغير</td></tr>
+              <tr><td><b>Uninitialized memory</b></td><td>457/908</td><td>buffer بيتبعت قبل ما يتملا بالكامل</td><td>تسريب بيانات stack/heap</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">Off-by-one: byte واحد يكفي <span class="tag">CWE-193</span></h3>
+        <div class="side-by-side">
+          <c-example file="off_by_one.c" norun>
+/* VULNERABLE: copies up to 32 chars + '\0' = 33 bytes */
+void set_name(char dst[32], const char *src) {
+    int i;
+    for (i = 0; i <= 31 && src[i]; i++)   /* fine so far */
+        dst[i] = src[i];
+    dst[i] = '\0';     /* i can be 32 -> writes dst[32]! */
+}
+          </c-example>
+          <c-example file="off_by_one_fixed.c" norun>
+/* FIXED: leave room for the terminator */
+void set_name(char dst[32], const char *src) {
+    int i;
+    for (i = 0; i < 31 && src[i]; i++)
+        dst[i] = src[i];
+    dst[i] = '\0';     /* i is at most 31 */
+}
+          </c-example>
+        </div>
+        <p>الـ byte الزيادة ده (<code>'\0'</code> = صفر) ممكن يقع على أول byte من الـ saved <code>rbp</code> أو متغير مجاور. ثغرات حقيقية كتير كانت <b>byte واحد</b> بس.</p>
+
+        <h3 class="sub">Format String: ليه printf(user) خطر <span class="tag">CWE-134</span></h3>
+        <c-example file="format_string.c" norun allow-warn>
+#include <stdio.h>
+
+void log_message(const char *user_input) {
+    printf(user_input);          /* VULNERABLE: input is used as the FORMAT */
+    printf("%s", user_input);    /* SAFE: input is just data              */
+}
+
+/* If user_input = "%p %p %p %p", printf reads 4 values it was never given:
+   registers and stack contents leak (addresses -> ASLR bypass).
+   "%n" WRITES the number of printed chars to an address taken from the stack.
+   Compilers warn: -Wformat-security */
+        </c-example>
+
+        <h3 class="sub">Signedness bug: الطول السالب <span class="tag">CWE-195</span></h3>
+        <c-example file="signedness.c">
+#include <stdio.h>
+#include <string.h>
+
+#define MAX 16
+
+/* VULNERABLE version shown for analysis (not called with bad input here) */
+static int copy_bad(char *dst, const char *src, int len) {
+    if (len > MAX) return -1;          /* signed compare: -1 passes! */
+    /* memcpy(dst, src, len) would treat -1 as SIZE_MAX -> massive overflow */
+    (void)dst; (void)src;
+    return 0;
+}
+
+static int copy_good(char *dst, const char *src, size_t len) {
+    if (len > MAX) return -1;          /* unsigned: huge values rejected */
+    memcpy(dst, src, len);
+    return 0;
+}
+
+int main(void) {
+    char buf[MAX];
+    int evil = -1;
+    printf("copy_bad  check with len=-1 : %s\n", copy_bad(buf, "x", evil) == 0 ? "PASSED (bug!)" : "rejected");
+    printf("copy_good check with len=-1 : %s\n", copy_good(buf, "x", (size_t)evil) == 0 ? "PASSED" : "rejected");
+    printf("(size_t)-1 = %zu\n", (size_t)evil);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">الحمايات (Mitigations) <span class="tag">defense in depth</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الحماية</th><th>بتعمل إيه</th><th>Linux / GCC</th><th>Windows / MSVC</th></tr></thead>
+            <tbody>
+              <tr><td><b>Stack Canary / Cookie</b></td><td>قيمة سرية قبل الـ return address، بتتشيك قبل <code>ret</code></td><td><code>-fstack-protector-strong</code> · <code>__stack_chk_fail</code></td><td><code>/GS</code> · <code>__security_check_cookie</code></td></tr>
+              <tr><td><b>NX / DEP</b></td><td>الـ stack والـ heap مش executable</td><td>افتراضي</td><td>DEP (افتراضي)</td></tr>
+              <tr><td><b>ASLR</b></td><td>العناوين عشوائية كل تشغيل</td><td><code>-fPIE -pie</code></td><td><code>/DYNAMICBASE</code></td></tr>
+              <tr><td><b>CFI</b></td><td>بيتأكد إن الـ indirect calls رايحة لدوال مسموحة</td><td><code>-fcf-protection</code> (CET IBT)</td><td><b>CFG</b> <code>/guard:cf</code></td></tr>
+              <tr><td><b>Shadow Stack</b></td><td>نسخة hardware من الـ return addresses</td><td>Intel CET</td><td>CET / <code>/CETCOMPAT</code></td></tr>
+              <tr><td><b>FORTIFY_SOURCE</b></td><td>نسخ آمنة من <code>memcpy/strcpy</code> لما الحجم معروف</td><td><code>-D_FORTIFY_SOURCE=2</code> · <code>__memcpy_chk</code></td><td>—</td></tr>
+              <tr><td><b>RELRO</b></td><td>جدول الـ GOT read-only</td><td><code>-Wl,-z,relro,-z,now</code></td><td>—</td></tr>
+              <tr><td><b>Safe heap</b></td><td>checks على الـ metadata</td><td>glibc checks</td><td>Segment Heap / LFH</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="side-by-side">
+          <c-example file="canary.c" norun>
+#include <string.h>
+
+void copy_name(const char *src) {
+    char buf[16];
+    strcpy(buf, src);
+    /* keep buf alive for the demo */
+    __asm__ volatile("" : : "r"(buf) : "memory");
+}
+          </c-example>
+          <asm-block file="canary.s (gcc -O2 -fstack-protector-strong)">
+copy_name:
+        sub     rsp, 40
+        mov     rsi, QWORD PTR fs:40     ; load the secret canary
+        mov     QWORD PTR [rsp+24], rsi  ; store it ABOVE buf
+        mov     rsi, rdi
+        mov     rdi, rsp                 ; buf at [rsp]
+        call    strcpy
+        mov     rax, QWORD PTR [rsp+24]  ; reload stored canary
+        sub     rax, QWORD PTR fs:40     ; changed?
+        jne     .L5
+        add     rsp, 40
+        ret
+.L5:
+        call    __stack_chk_fail         ; abort, never returns
+          </asm-block>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>اعرف الحمايات في ثواني</strong><p>على Linux: <code>checksec --file=./binary</code>. على Windows: <b>PE-bear</b> / <b>DIE</b> / <code>dumpbin /headers</code> وشوف الـ <b>DllCharacteristics</b> (<code>DYNAMIC_BASE</code>، <code>NX_COMPAT</code>، <code>GUARD_CF</code>). وفي الكود: <code>fs:28h</code> (Linux) أو <code>__security_cookie</code> (Windows) في الـ prologue = canary. الـ malware نفسه غالبًا مبيتعملش compile بالحمايات دي — وده بحد ذاته معلومة عن بيئة الـ build بتاعته.</p></div></div>
+
+        <h3 class="sub">أدوات اكتشاف الأخطاء <span class="tag">tooling</span></h3>
+        <plain-block file="terminal" lang="bash">
+# AddressSanitizer: overflow, UAF, double free, leaks (Linux / WSL / clang on Windows)
+gcc -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer bug.c -o bug && ./bug
+
+# UndefinedBehaviorSanitizer only (signed overflow, bad shifts, misaligned access...)
+gcc -g -fsanitize=undefined bug.c -o bug
+
+# Valgrind: no recompilation needed
+valgrind --leak-check=full ./bug
+
+# Static analysis built into the compilers
+gcc -fanalyzer -Wall -Wextra bug.c
+clang --analyze bug.c
+
+# Fuzzing: throw millions of mutated inputs at a parser
+clang -g -fsanitize=fuzzer,address parser_fuzz.c -o fuzz && ./fuzz corpus/
+        </plain-block>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>عادة المحترفين</strong><p>أي parser أو tool بتكتبه لتحليل الـ samples (configs، PE، protocols) — شغّله بـ ASan و<b>fuzzing</b> قبل ما تعتمد عليه. الـ samples ممكن تكون معمولة مخصوص عشان توقّع أدوات التحليل، ومحلل اتعمله exploit عن طريق أداته = كارثة.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 15</h3></div>
+
+          <quiz id="s15-q1" answer="1">
+            <q>ليه gcc شال الـ check <code>if (x + 1 &lt; x)</code> خالص؟</q>
+            <o>bug في الـ compiler</o>
+            <o>لأن الـ signed overflow UB، فالـ compiler مسموحله يفترض إنه مبيحصلش، فالشرط دايمًا false</o>
+            <o>لأن <code>-O2</code> بيشيل كل الـ ifs</o>
+            <o>لأن <code>x</code> مش متعمله initialize</o>
+            <good>ده بالظبط إزاي الـ UB بيحذف security checks حقيقية. الـ check لازم يتعمل قبل العملية: <code>x &gt; INT_MAX - 1</code>.</good>
+            <bad>إيه اللي المعيار بيقوله عن الـ signed overflow؟</bad>
+          </quiz>
+
+          <quiz id="s15-q2" answer="3">
+            <q>في الـ disassembly قبل <code>call memcpy</code>: الطول جاي من packet وفيه <code>cmp eax, 100h</code> ثم <code>jg error</code>. المشكلة؟</q>
+            <o>مفيش مشكلة</o>
+            <o>لازم <code>je</code></o>
+            <o>الحد صغير</o>
+            <o><code>jg</code> مقارنة signed: طول سالب (زي <code>0xFFFFFFFF</code>) هيعدّي، و<code>memcpy</code> هتعامله كرقم unsigned ضخم</o>
+            <good>Signedness bug كلاسيكي (CWE-195). الـ check الصح يكون unsigned (<code>ja</code>) أو يرفض السالب صراحة.</good>
+            <bad>هل <code>jg</code> signed ولا unsigned؟ و<code>memcpy</code> بتاخد الطول بأنهي نوع؟</bad>
+          </quiz>
+
+          <quiz id="s15-q3" answer="0">
+            <q>شفت في prologue دالة على Windows: <code>mov rax, cs:__security_cookie</code> ثم <code>xor rax, rsp</code> ثم <code>mov [rsp+...], rax</code>. ده إيه؟</q>
+            <o>الـ stack cookie بتاع <code>/GS</code> (حماية من stack overflow)</o>
+            <o>تشفير البيانات</o>
+            <o>anti-debugging</o>
+            <o>API hashing</o>
+            <good>MSVC بيعمل XOR للـ cookie مع <code>rsp</code> ويخزنه، وفي الآخر بيعكس العملية وينادي <code>__security_check_cookie</code>. وجوده بيقولك إن الدالة فيها buffers على الـ stack.</good>
+            <bad>اسمه فيه "security cookie"…</bad>
+          </quiz>
+
+          <quiz id="s15-q4" answer="2">
+            <q>إيه الحماية اللي بتمنع تنفيذ كود اتكتب على الـ stack؟</q>
+            <o>ASLR</o>
+            <o>Stack canary</o>
+            <o>NX / DEP</o>
+            <o>RELRO</o>
+            <good>NX/DEP بيعلّم صفحات الـ stack والـ heap non-executable. عشان كده الـ malware (والـ exploits) بيحتاجوا <code>VirtualProtect</code>/<code>VirtualAlloc</code> بـ RWX عشان ينفذوا shellcode.</good>
+            <bad>أنهي حماية بتتحكم في صلاحية <b>التنفيذ</b> للصفحات؟</bad>
+          </quiz>
+
+          <quiz id="s15-q5" answer="1">
+            <q><code>for (i = 0; i &lt;= len; i++) buf[i] = src[i];</code> و<code>buf</code> حجمه <code>len</code>. اسم الـ bug؟</q>
+            <o>Use-after-free</o>
+            <o>Off-by-one (بيكتب byte واحد بعد الحدود)</o>
+            <o>Format string</o>
+            <o>Double free</o>
+            <good><code>&lt;=</code> بيخلي آخر index = <code>len</code> وده برا الـ buffer. CWE-193.</good>
+            <bad>عد: لما <code>len = 4</code>، الـ loop بتكتب في أنهي indices؟</bad>
+          </quiz>
+
+          <quiz id="s15-q6" answer="3">
+            <q>أداة بتكتشف الـ heap overflow والـ UAF وقت التشغيل بإضافة "red zones" حوالين كل allocation؟</q>
+            <o>gdb</o>
+            <o>strace</o>
+            <o>objdump</o>
+            <o>AddressSanitizer (<code>-fsanitize=address</code>)</o>
+            <good>ASan بيضيف instrumentation على كل وصول للذاكرة ومناطق ممنوعة حوالين الـ buffers، وبيطبع stack trace دقيق لمكان الـ bug.</good>
+            <bad>أداة من الـ compiler نفسه بتتفعل بـ flag.</bad>
+          </quiz>
+
+          <challenge id="s15-c1" title="أصلح الـ parser الضعيف" level="3">
+            <desc>الدالة <code>read_field</code> بتاخد buffer فيه <code>[u8 len][len bytes]</code> وبتنسخ القيمة لـ <code>out</code> (حجمه <code>out_size</code>). النسخة الأصلية مكانتش بتتشيك على أي حاجة. اكتبها <b>آمنة</b>: ارجع <code>-1</code> لو الـ buffer أقصر من byte الطول، <code>-2</code> لو <code>len</code> أكبر من الـ bytes المتاحة، <code>-3</code> لو مش هتكفي في <code>out</code> مع <code>'\0'</code>، وإلا انسخ وارجع <code>len</code>. الناتج:<br><code>ok: 5 'hello'</code><br><code>error -2</code><br><code>error -3</code><br><code>error -1</code></desc>
+            <starter>
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+int read_field(const uint8_t *buf, size_t buf_len, char *out, size_t out_size) {
+    /* ORIGINAL (vulnerable):
+       uint8_t len = buf[0];
+       memcpy(out, buf + 1, len);
+       out[len] = '\0';
+       return len;                       */
+    // TODO: safe version
+    (void)buf; (void)buf_len; (void)out; (void)out_size;
+    return 0;
+}
+
+int main(void) {
+    const uint8_t a[] = { 5, 'h', 'e', 'l', 'l', 'o' };
+    const uint8_t b[] = { 50, 'x', 'y' };
+    const uint8_t c[] = { 10, '0','1','2','3','4','5','6','7','8','9' };
+    char out[8];
+    const struct { const uint8_t *p; size_t n; } cases[] = { { a, sizeof a }, { b, sizeof b }, { c, sizeof c }, { a, 0 } };
+    for (int i = 0; i < 4; i++) {
+        int r = read_field(cases[i].p, cases[i].n, out, sizeof out);
+        if (r >= 0) printf("ok: %d '%s'\n", r, out);
+        else        printf("error %d\n", r);
+    }
+    return 0;
+}
+            </starter>
+            <expected>
+ok: 5 'hello'
+error -2
+error -3
+error -1
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+int read_field(const uint8_t *buf, size_t buf_len, char *out, size_t out_size) {
+    if (buf_len < 1) return -1;                 /* no length byte        */
+    size_t len = buf[0];
+    if (len > buf_len - 1) return -2;           /* claims more than we have */
+    if (out_size == 0 || len > out_size - 1) return -3;   /* no room for '\0' */
+    memcpy(out, buf + 1, len);
+    out[len] = '\0';
+    return (int)len;
+}
+
+int main(void) {
+    const uint8_t a[] = { 5, 'h', 'e', 'l', 'l', 'o' };
+    const uint8_t b[] = { 50, 'x', 'y' };
+    const uint8_t c[] = { 10, '0','1','2','3','4','5','6','7','8','9' };
+    char out[8];
+    const struct { const uint8_t *p; size_t n; } cases[] = { { a, sizeof a }, { b, sizeof b }, { c, sizeof c }, { a, 0 } };
+    for (int i = 0; i < 4; i++) {
+        int r = read_field(cases[i].p, cases[i].n, out, sizeof out);
+        if (r >= 0) printf("ok: %d '%s'\n", r, out);
+        else        printf("error %d\n", r);
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s15-c2" title="ضرب آمن للأحجام" level="2">
+            <desc>اكتب <code>int safe_mul(size_t a, size_t b, size_t *out)</code> بترجع 0 وتكتب الناتج لو مفيش overflow، و<code>-1</code> لو فيه — من غير builtins (استخدم القسمة). اطبع:<br><code>1000 * 16 = 16000</code><br><code>overflow</code><br><code>0 * 99 = 0</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+int safe_mul(size_t a, size_t b, size_t *out) {
+    // TODO
+    (void)a; (void)b; (void)out;
+    return -1;
+}
+
+int main(void) {
+    size_t r;
+    size_t tests[][2] = { { 1000, 16 }, { SIZE_MAX / 2, 3 }, { 0, 99 } };
+    for (int i = 0; i < 3; i++) {
+        if (safe_mul(tests[i][0], tests[i][1], &r) == 0)
+            printf("%zu * %zu = %zu\n", tests[i][0], tests[i][1], r);
+        else
+            printf("overflow\n");
+    }
+    return 0;
+}
+            </starter>
+            <expected>
+1000 * 16 = 16000
+overflow
+0 * 99 = 0
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+int safe_mul(size_t a, size_t b, size_t *out) {
+    if (a != 0 && b > SIZE_MAX / a)
+        return -1;
+    *out = a * b;
+    return 0;
+}
+
+int main(void) {
+    size_t r;
+    size_t tests[][2] = { { 1000, 16 }, { SIZE_MAX / 2, 3 }, { 0, 99 } };
+    for (int i = 0; i < 3; i++) {
+        if (safe_mul(tests[i][0], tests[i][1], &r) == 0)
+            printf("%zu * %zu = %zu\n", tests[i][0], tests[i][1], r);
+        else
+            printf("overflow\n");
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

@@ -1,0 +1,460 @@
+      <section class="section" id="s05" data-part="الجزء 1 · الأساسيات" data-nav="الدوال والـ Scope" data-icon="🧩" data-keywords="functions prototype declaration definition parameters pass by value return void scope static extern storage class lifetime recursion stack overflow variadic stdarg argc argv inline calling convention rdi rsi rcx">
+        <div class="section-head">
+          <span class="section-index">05</span>
+          <div>
+            <p class="eyebrow">المرحلة الخامسة</p>
+            <h2>الدوال، الـ Scope، ومدة حياة المتغيرات</h2>
+            <p class="lede">أول حاجة بتعملها في أي sample: <b>تقسّم الكود لدوال وتسميها</b>. لما تفهم الدالة بتاخد إيه وبترجع إيه وبتلمس أنهي ذاكرة، تقدر تسمّيها (<code>decrypt_config</code>، <code>send_beacon</code>…) وتكمل. المرحلة دي بتعلمك الدوال من جوه C ومن جوه الـ CPU.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">التعريف، الـ Prototype، والاستدعاء <span class="tag">functions</span></h3>
+        <c-example file="functions.c">
+#include <stdio.h>
+#include <stdint.h>
+
+/* Prototype (declaration): tells the compiler the signature */
+uint32_t checksum(const unsigned char *data, size_t len);
+static void banner(void);
+
+int main(void) {
+    const unsigned char payload[] = { 0x10, 0x20, 0x30, 0xFF };
+    banner();
+    printf("checksum = 0x%08X\n", checksum(payload, sizeof payload));
+    return 0;
+}
+
+/* Definition: the actual body */
+uint32_t checksum(const unsigned char *data, size_t len) {
+    uint32_t sum = 0;
+    for (size_t i = 0; i < len; i++)
+        sum = (sum << 1) ^ data[i];
+    return sum;
+}
+
+static void banner(void) {           /* void = returns nothing */
+    puts("== integrity check ==");
+}
+        </c-example>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>المصطلح</th><th>المعنى</th></tr></thead>
+            <tbody>
+              <tr><td><b>Declaration / Prototype</b></td><td>الاسم + نوع الرجوع + أنواع الـ parameters، منغير جسم. بيتحط عادة في <code>.h</code>.</td></tr>
+              <tr><td><b>Definition</b></td><td>الدالة بجسمها. لازم تتعرّف <b>مرة واحدة بس</b> في كل البرنامج.</td></tr>
+              <tr><td><code>(void)</code></td><td>مفيش parameters. (في C القديم <code>f()</code> كان معناه "أي عدد" — اكتب <code>void</code> دايمًا.)</td></tr>
+              <tr><td><code>const</code> في الـ parameter</td><td>وعد إن الدالة مش هتعدّل البيانات اللي الـ pointer بيشاور عليها.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">Pass by Value: الدالة بتاخد نسخة <span class="tag">copies</span></h3>
+        <p>في C، <b>كل</b> الـ arguments بتتبعت بالقيمة — الدالة بتاخد <b>نسخة</b>. عشان دالة تعدّل متغير عند اللي ناداها، لازم تبعتلها <b>عنوانه</b> (pointer) — وده أول سبب عملي للـ pointers.</p>
+        <c-example file="by_value.c" allow-warn>
+#include <stdio.h>
+
+static void try_reset(int x)    { x = 0; }          /* modifies its copy only */
+static void real_reset(int *x)  { *x = 0; }         /* modifies the original  */
+
+static void swap(int *a, int *b) {
+    int t = *a;
+    *a = *b;
+    *b = t;
+}
+
+int main(void) {
+    int v = 99;
+    try_reset(v);
+    printf("after try_reset : %d\n", v);
+    real_reset(&v);
+    printf("after real_reset: %d\n", v);
+
+    int p = 1, q = 2;
+    swap(&p, &q);
+    printf("after swap: p=%d q=%d\n", p, q);
+    return 0;
+}
+        </c-example>
+
+        <p>لاحظ لما تشغّل: الـ compiler بيطلع warning إن <code>x</code> في <code>try_reset</code> "set but not used" — هو نفسه شايف إن التعديل ده ملوش أي أثر برا الدالة.</p>
+
+        <h3 class="sub">الدالة من جوه الـ CPU <span class="tag">registers</span></h3>
+        <p>على Linux x86-64 (<b>System V ABI</b>) أول 6 arguments بتتبعت في registers بالترتيب: <code>rdi, rsi, rdx, rcx, r8, r9</code> (والنسخ الـ 32-bit: <code>edi, esi, edx, ecx…</code>)، والقيمة الراجعة في <code>rax</code>/<code>eax</code>. ده ناتج gcc الحقيقي:</p>
+        <div class="side-by-side">
+          <c-example file="add3.c" norun>
+int add3(int a, int b, int c) {
+    int sum = a + b + c;
+    return sum;
+}
+
+int caller(void) {
+    return add3(1, 2, 3);
+}
+          </c-example>
+          <asm-block file="add3.s (gcc -O0)">
+add3:
+        push    rbp
+        mov     rbp, rsp
+        mov     DWORD PTR [rbp-20], edi  ; a (1st arg)
+        mov     DWORD PTR [rbp-24], esi  ; b (2nd arg)
+        mov     DWORD PTR [rbp-28], edx  ; c (3rd arg)
+        mov     edx, DWORD PTR [rbp-20]
+        mov     eax, DWORD PTR [rbp-24]
+        add     edx, eax                 ; a + b
+        mov     eax, DWORD PTR [rbp-28]
+        add     eax, edx                 ; + c
+        mov     DWORD PTR [rbp-4], eax   ; sum
+        mov     eax, DWORD PTR [rbp-4]   ; return in eax
+        pop     rbp
+        ret
+caller:
+        push    rbp
+        mov     rbp, rsp
+        mov     edx, 3                   ; args are loaded
+        mov     esi, 2                   ;  right-to-left
+        mov     edi, 1
+        call    add3
+        pop     rbp
+        ret
+          </asm-block>
+        </div>
+        <p>وفي <code>-O2</code>؟ <code>add3</code> بقت <code>add edi, esi</code> + <code>lea eax, [rdi+rdx]</code>، و<code>caller</code> بقت <b><code>mov eax, 6</code></b> بس — الـ compiler حسب النتيجة وقت الـ compile وشال الـ call خالص (<b>inlining + constant folding</b>). عشان كده في الـ binaries المعمول لها optimization، دوال صغيرة كتير <b>بتختفي</b> وكودها بيندمج جوه اللي بيناديها.</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Calling Convention</th><th>المنصة</th><th>أول arguments</th><th>الرجوع</th><th>ملاحظات</th></tr></thead>
+            <tbody>
+              <tr><td><b>System V AMD64</b></td><td>Linux / macOS x64</td><td><code>rdi rsi rdx rcx r8 r9</code></td><td><code>rax</code></td><td>الباقي على الـ stack</td></tr>
+              <tr><td><b>Microsoft x64</b></td><td>Windows x64</td><td><code>rcx rdx r8 r9</code></td><td><code>rax</code></td><td>الـ caller بيحجز 32 byte <b>shadow space</b></td></tr>
+              <tr><td><b>cdecl</b></td><td>x86 32-bit</td><td>كله على الـ stack</td><td><code>eax</code></td><td>الـ caller بينضّف الـ stack (<code>add esp, N</code>)</td></tr>
+              <tr><td><b>stdcall</b></td><td>Win32 API (32-bit)</td><td>كله على الـ stack</td><td><code>eax</code></td><td>الـ callee بينضّف (<code>ret N</code>)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>حدد عدد الـ arguments من الـ registers</strong><p>لو دالة بتقرا <code>edi</code> و<code>esi</code> قبل ما تكتب فيهم، يبقى بتاخد غالبًا argumentين (Linux). على Windows دوّر على <code>rcx</code> و<code>rdx</code> و<code>r8</code> و<code>r9</code>. وشوف <code>eax</code>/<code>rax</code> بيتحط فيه إيه قبل <code>ret</code> عشان تعرف نوع الرجوع. هنتعمق في الـ stack frames في المرحلة 14.</p></div></div>
+
+        <h3 class="sub">الـ Scope ومدة الحياة (Storage Duration) <span class="tag">static · extern</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>التعريف</th><th>الـ Scope (مين يشوفه)</th><th>مدة الحياة</th><th>مكانه في الـ binary</th></tr></thead>
+            <tbody>
+              <tr><td>متغير محلي <code>int x;</code></td><td>جوه الـ block بس</td><td>لحد ما الـ block يخلص</td><td><b>Stack</b> (أو register)</td></tr>
+              <tr><td><code>static int x;</code> جوه دالة</td><td>جوه الدالة بس</td><td><b>طول عمر البرنامج</b> — بيحتفظ بقيمته</td><td><code>.data</code> / <code>.bss</code></td></tr>
+              <tr><td>global <code>int g;</code></td><td>كل الملفات (لو اتعمل <code>extern</code>)</td><td>طول البرنامج</td><td><code>.data</code> / <code>.bss</code></td></tr>
+              <tr><td><code>static int g;</code> برا الدوال</td><td>الملف ده بس (internal linkage)</td><td>طول البرنامج</td><td><code>.data</code> / <code>.bss</code></td></tr>
+              <tr><td><code>static void f(void)</code></td><td>الملف ده بس</td><td>—</td><td><code>.text</code>، ومش ظاهرة في الـ exports</td></tr>
+              <tr><td><code>extern int g;</code></td><td>إعلان عن متغير متعرّف في ملف تاني</td><td>—</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="storage.c">
+#include <stdio.h>
+
+int total_calls = 0;              /* global (.bss, zero-initialised) */
+
+static int next_id(void) {
+    static int id = 1000;         /* initialised ONCE, survives calls (.data) */
+    total_calls++;
+    return id++;
+}
+
+int main(void) {
+    for (int i = 0; i < 3; i++)
+        printf("id = %d\n", next_id());
+
+    int x = 1;
+    {
+        int x = 2;                /* shadows the outer x inside this block */
+        printf("inner x = %d\n", x);
+    }
+    printf("outer x = %d, total_calls = %d\n", x, total_calls);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ static local في الـ decompiler = global</strong><p>المتغير الـ <code>static</code> جوه دالة بيتخزن في <code>.data</code> زي أي global — gcc بيسميه حاجة زي <code>calls.0</code> وبيوصله بـ <code>[rip+offset]</code>. في Ghidra هيظهر كـ <code>DAT_00104010</code>. لما تشوف دالة بتقرا وتكتب في global بتاعها لوحدها، فكّر: <b>counter، flag "initialized"، أو cache</b> — زي الـ malware اللي بيحل الـ APIs مرة واحدة ويخزنها.</p></div></div>
+
+        <h3 class="sub">الـ Recursion والـ Stack <span class="tag">recursion</span></h3>
+        <p>الدالة اللي بتنادي نفسها. كل استدعاء بياخد <b>stack frame</b> جديد، فلو مفيش شرط توقف (base case) أو العمق كبير جدًا = <b>Stack Overflow</b> والبرنامج بيقع.</p>
+        <c-example file="recursion.c">
+#include <stdio.h>
+
+static unsigned long long factorial(unsigned n) {
+    if (n <= 1) return 1;                 /* base case */
+    return n * factorial(n - 1);          /* recursive case */
+}
+
+static unsigned gcd(unsigned a, unsigned b) {
+    return b == 0 ? a : gcd(b, a % b);    /* tail recursion */
+}
+
+static void depth(int level) {
+    if (level > 3) return;
+    printf("%*sdepth %d\n", level * 2, "", level);
+    depth(level + 1);
+    printf("%*sunwind %d\n", level * 2, "", level);
+}
+
+int main(void) {
+    printf("10! = %llu\n", factorial(10));
+    printf("gcd(1071, 462) = %u\n", gcd(1071, 462));
+    depth(1);
+    return 0;
+}
+        </c-example>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>جرّب ASM على gcd بـ -O2</strong><p>الـ <b>tail recursion</b> (لما الاستدعاء هو آخر حاجة) gcc بيحولها لـ <b>loop</b> عادية — مفيش <code>call</code> خالص. عشان كده مش كل دالة recursive في الكود تبان recursive في الـ binary.</p></div></div>
+
+        <h3 class="sub">Variadic Functions: زي printf <span class="tag">stdarg.h</span></h3>
+        <c-example file="variadic.c">
+#include <stdio.h>
+#include <stdarg.h>
+
+/* A logger like the ones you will find inside malware debug builds */
+static void log_msg(const char *level, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    printf("[%s] ", level);
+    vprintf(fmt, args);           /* forward the variable arguments */
+    printf("\n");
+    va_end(args);
+}
+
+static int sum_n(int count, ...) {
+    va_list ap;
+    va_start(ap, count);
+    int total = 0;
+    for (int i = 0; i < count; i++)
+        total += va_arg(ap, int);
+    va_end(ap);
+    return total;
+}
+
+int main(void) {
+    log_msg("INFO", "connected to %s:%d", "10.0.0.5", 443);
+    log_msg("WARN", "retry %d of %d", 2, 5);
+    printf("sum = %d\n", sum_n(4, 10, 20, 30, 40));
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">main و الـ Command Line <span class="tag">argc · argv</span></h3>
+        <c-example file="args.c" expect-exit="1">
+#include <stdio.h>
+
+int main(int argc, char *argv[]) {
+    printf("argc = %d\n", argc);
+    for (int i = 0; i < argc; i++)
+        printf("argv[%d] = %s\n", i, i == 0 ? "<program path>" : argv[i]);
+
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s <file>\n", "tool");
+        return 1;
+    }
+    return 0;
+}
+        </c-example>
+        <p>شغّل المثال: هيرجع <code>1</code> لأن مفيش arguments. <code>argv[0]</code> = مسار البرنامج، و<code>argv[argc]</code> = <code>NULL</code> دايمًا. والـ malware كتير بيتحكم في سلوكه بالـ arguments (مثلًا <code>-install</code> أو <code>-svc</code>) — فلو الـ sample مبيعملش حاجة في الـ sandbox، شوف هل بيدور على argument معين في <code>main</code>.</p>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 05</h3></div>
+
+          <quiz id="s05-q1" answer="2">
+            <q>هيطبع إيه؟<pre-c>
+void f(int n) { n = n * 2; }
+int main(void) {
+    int x = 5;
+    f(x);
+    printf("%d", x);
+}
+            </pre-c></q>
+            <o><code>10</code></o>
+            <o><code>0</code></o>
+            <o><code>5</code></o>
+            <o>compile error</o>
+            <good>C بتبعت <b>نسخة</b>. التعديل جوه <code>f</code> مبيأثرش على <code>x</code>. عشان تعدّلها لازم تبعت <code>&amp;x</code>.</good>
+            <bad>افتكر: كل الـ arguments في C pass by value.</bad>
+          </quiz>
+
+          <quiz id="s05-q2" answer="0">
+            <q>على Linux x86-64، الـ argument التالت لأي دالة (لو integer) بيتبعت في...</q>
+            <o><code>rdx</code> / <code>edx</code></o>
+            <o><code>rcx</code></o>
+            <o><code>r8</code></o>
+            <o>الـ stack دايمًا</o>
+            <good>System V: <code>rdi, rsi, <b>rdx</b>, rcx, r8, r9</code>. (على Windows x64 التالت = <code>r8</code>.)</good>
+            <bad>رتّب: rdi, rsi, ?, rcx, r8, r9.</bad>
+          </quiz>
+
+          <quiz id="s05-q3" answer="3">
+            <q>على Windows x64، الـ argument الأول بيتبعت في...</q>
+            <o><code>rdi</code></o>
+            <o><code>rax</code></o>
+            <o>الـ stack</o>
+            <o><code>rcx</code></o>
+            <good>Microsoft x64: <code>rcx, rdx, r8, r9</code> + 32 byte shadow space. عشان كده قبل أي <code>call</code> لـ WinAPI هتشوف <code>mov rcx, ...</code>.</good>
+            <bad>الـ convention بتاعة Windows مختلفة عن Linux. أول register فيها بيبدأ بـ "c".</bad>
+          </quiz>
+
+          <quiz id="s05-q4" answer="1">
+            <q>متغير <code>static int count = 0;</code> متعرّف <b>جوه</b> دالة. أنهي جملة صح؟</q>
+            <o>بيرجع صفر مع كل استدعاء</o>
+            <o>بيتعمله initialize مرة واحدة، وبيحتفظ بقيمته بين الاستدعاءات، ومكانه في <code>.data</code>/<code>.bss</code></o>
+            <o>بيتخزن على الـ stack</o>
+            <o>أي ملف تاني يقدر يوصله بـ <code>extern</code></o>
+            <good>الـ <code>static</code> المحلي = scope محلي + lifetime طول البرنامج. ومش ظاهر للملفات التانية.</good>
+            <bad>الـ <code>static</code> جوه دالة بيغيّر <b>مدة الحياة</b> مش الـ scope.</bad>
+          </quiz>
+
+          <quiz id="s05-q5" answer="2">
+            <q>دالة <code>is_debug_build()</code> صغيرة في الكود المصدري، بس مش لاقيها خالص في الـ binary المعمول له <code>-O2</code>. السبب الأرجح؟</q>
+            <o>الـ binary معمول له pack</o>
+            <o>الـ compiler مسحها لأنها <code>static</code></o>
+            <o>اتعملها <b>inline</b>: كودها اتنسخ جوه الدوال اللي بتناديها</o>
+            <o>الـ linker رفضها</o>
+            <good>الـ inlining بيدمج الدوال الصغيرة في اللي بيناديها، وممكن كمان يحسب النتيجة وقت الـ compile. زي <code>caller</code> اللي بقت <code>mov eax, 6</code>.</good>
+            <bad>شوف تاني إيه اللي حصل لـ <code>caller</code> و<code>add3</code> في <code>-O2</code>.</bad>
+          </quiz>
+
+          <quiz id="s05-q6" answer="0">
+            <q>دالة recursive من غير base case هتعمل إيه وقت التشغيل؟</q>
+            <o>Stack overflow — كل استدعاء بياخد frame لحد ما الـ stack يخلص والبرنامج يقع</o>
+            <o>Heap overflow</o>
+            <o>الـ compiler بيرفضها</o>
+            <o>بتلف للأبد من غير مشاكل</o>
+            <good>الـ stack محدود (غالبًا 1MB على Windows و8MB على Linux). كل frame بياخد جزء، فبيخلص ويحصل crash (SIGSEGV / 0xC00000FD).</good>
+            <bad>كل استدعاء بيحجز مساحة على أنهي منطقة من الذاكرة؟</bad>
+          </quiz>
+
+          <challenge id="s05-c1" title="الأس السريع (Fast Exponentiation)" level="2">
+            <desc>اكتب <code>uint64_t power_mod(uint64_t base, uint64_t exp, uint64_t mod)</code> بتحسب <code>(base^exp) % mod</code> بطريقة <b>square-and-multiply</b> (دي اللي بتشوفها في تنفيذ RSA جوه الـ ransomware). اطبع:<br><code>3^13 mod 1000 = 323</code><br><code>7^128 mod 13 = 3</code><br><code>2^64 mod 1000000007 = 582344008</code><br>تلميح: لو الـ bit الحالي في <code>exp</code> = 1، اضرب النتيجة في <code>base</code>. وفي كل خطوة: <code>base = base*base % mod</code> و<code>exp &gt;&gt;= 1</code>.</desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+uint64_t power_mod(uint64_t base, uint64_t exp, uint64_t mod) {
+    uint64_t result = 1;
+    // TODO
+    (void)base; (void)exp; (void)mod;
+    return result;
+}
+
+int main(void) {
+    printf("3^13 mod 1000 = %" PRIu64 "\n", power_mod(3, 13, 1000));
+    printf("7^128 mod 13 = %" PRIu64 "\n", power_mod(7, 128, 13));
+    printf("2^64 mod 1000000007 = %" PRIu64 "\n", power_mod(2, 64, 1000000007));
+    return 0;
+}
+            </starter>
+            <expected>
+3^13 mod 1000 = 323
+7^128 mod 13 = 3
+2^64 mod 1000000007 = 582344008
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+uint64_t power_mod(uint64_t base, uint64_t exp, uint64_t mod) {
+    uint64_t result = 1;
+    base %= mod;
+    while (exp > 0) {
+        if (exp & 1)
+            result = result * base % mod;
+        base = base * base % mod;
+        exp >>= 1;
+    }
+    return result;
+}
+
+int main(void) {
+    printf("3^13 mod 1000 = %" PRIu64 "\n", power_mod(3, 13, 1000));
+    printf("7^128 mod 13 = %" PRIu64 "\n", power_mod(7, 128, 13));
+    printf("2^64 mod 1000000007 = %" PRIu64 "\n", power_mod(2, 64, 1000000007));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s05-c2" title="Swap و Min/Max بالـ pointers">
+            <desc>اكتب <code>void minmax(int a, int b, int c, int *min, int *max)</code> بترجع أصغر وأكبر قيمة عن طريق الـ pointers (لأن الدالة ترجع قيمة واحدة بس). اطبع لـ (7, -3, 12):<br><code>min=-3 max=12</code></desc>
+            <starter>
+#include <stdio.h>
+
+void minmax(int a, int b, int c, int *min, int *max) {
+    // TODO
+    (void)a; (void)b; (void)c; (void)min; (void)max;
+}
+
+int main(void) {
+    int lo = 0, hi = 0;
+    minmax(7, -3, 12, &lo, &hi);
+    printf("min=%d max=%d\n", lo, hi);
+    return 0;
+}
+            </starter>
+            <expected>
+min=-3 max=12
+            </expected>
+            <solution>
+#include <stdio.h>
+
+void minmax(int a, int b, int c, int *min, int *max) {
+    int lo = a, hi = a;
+    if (b < lo) lo = b;
+    if (c < lo) lo = c;
+    if (b > hi) hi = b;
+    if (c > hi) hi = c;
+    *min = lo;
+    *max = hi;
+}
+
+int main(void) {
+    int lo = 0, hi = 0;
+    minmax(7, -3, 12, &lo, &hi);
+    printf("min=%d max=%d\n", lo, hi);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s05-c3" title="Generator بحالة: LCG" level="2">
+            <desc>كتير من الـ malware بيولّد أسماء domains (DGA) أو keys بـ <b>Linear Congruential Generator</b>. اكتب <code>uint32_t lcg_next(void)</code> فيها <code>static uint32_t state = 12345;</code> وبتعمل: <code>state = state * 1103515245 + 12345;</code> وترجع <code>(state &gt;&gt; 16) &amp; 0x7FFF</code>. اطبع أول 5 قيم في سطر واحد بينهم مسافة:<br><code>21468 9988 22117 3498 16927</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+uint32_t lcg_next(void) {
+    // TODO: static state
+    return 0;
+}
+
+int main(void) {
+    for (int i = 0; i < 5; i++)
+        printf(i ? " %u" : "%u", lcg_next());
+    printf("\n");
+    return 0;
+}
+            </starter>
+            <expected>
+21468 9988 22117 3498 16927
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+uint32_t lcg_next(void) {
+    static uint32_t state = 12345;
+    state = state * 1103515245u + 12345u;     /* unsigned: wraps mod 2^32 */
+    return (state >> 16) & 0x7FFF;
+}
+
+int main(void) {
+    for (int i = 0; i < 5; i++)
+        printf(i ? " %u" : "%u", lcg_next());
+    printf("\n");
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

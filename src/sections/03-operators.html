@@ -1,0 +1,521 @@
+      <section class="section" id="s03" data-part="الجزء 1 · الأساسيات" data-nav="العمليات و Bitwise" data-icon="🧮" data-keywords="operators arithmetic increment logical short circuit bitwise and or xor not shift rotate rol ror mask flags precedence ternary sar shr">
+        <div class="section-head">
+          <span class="section-index">03</span>
+          <div>
+            <p class="eyebrow">المرحلة الثالثة</p>
+            <h2>العمليات — وخصوصًا الـ Bitwise (لغة الـ Malware)</h2>
+            <p class="lede">الـ encryption، الـ hashing، الـ string obfuscation، الـ flags، الـ permissions… كلها <b>bitwise operations</b>. لو مش مرتاح مع <code>^</code> و<code>&amp;</code> و<code>&lt;&lt;</code>، مش هتعرف تفك أي decoder. المرحلة دي لازم تبقى طبيعية عندك زي الجمع.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">العمليات الحسابية والتخصيص <span class="tag">arithmetic</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>العملية</th><th>المعنى</th><th>ملاحظات</th></tr></thead>
+            <tbody>
+              <tr><td><code>+ - * /</code></td><td>جمع، طرح، ضرب، قسمة</td><td>القسمة بين integers بتقص الكسر (نحو الصفر)</td></tr>
+              <tr><td><code>%</code></td><td>باقي القسمة</td><td>للـ integers بس. إشارته زي إشارة المقسوم: <code>-7 % 2 == -1</code></td></tr>
+              <tr><td><code>++x</code> / <code>x++</code></td><td>زوّد 1 قبل/بعد استخدام القيمة</td><td>متستخدمش <code>x</code> تاني في نفس التعبير (<code>i = i++</code> = UB)</td></tr>
+              <tr><td><code>+= -= *= /= %= &amp;= |= ^= &lt;&lt;= &gt;&gt;=</code></td><td>عملية + تخصيص</td><td><code>key ^= 0x5A;</code> = <code>key = key ^ 0x5A;</code></td></tr>
+              <tr><td><code>== != &lt; &gt; &lt;= &gt;=</code></td><td>مقارنة ← النتيجة <code>int</code> قيمتها 0 أو 1</td><td>متخلطش <code>=</code> مع <code>==</code></td></tr>
+              <tr><td><code>&amp;&amp; || !</code></td><td>AND / OR / NOT منطقي</td><td><b>Short-circuit</b>: الطرف التاني ممكن ميتنفذش</td></tr>
+              <tr><td><code>c ? a : b</code></td><td>Ternary</td><td>غالبًا بيتحول لـ <code>cmov</code> في الـ optimization</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="arith.c">
+#include <stdio.h>
+
+int check(const char *who) {
+    printf("  check(%s) called\n", who);
+    return 0;
+}
+
+int main(void) {
+    int i = 5;
+    int a = i++;      /* a = 5, then i = 6 */
+    int b = ++i;      /* i = 7, then b = 7 */
+    printf("a=%d b=%d i=%d\n", a, b, i);
+
+    int x = 17;
+    x += 3;  x *= 2;  x %= 7;
+    printf("x=%d\n", x);
+
+    /* Short-circuit: the right side is skipped */
+    printf("0 && check -> %d\n", 0 && check("right"));
+    printf("1 || check -> %d\n", 1 || check("right"));
+    printf("1 && check -> %d\n", 1 && check("right"));
+
+    int n = 42;
+    printf("%d is %s\n", n, (n % 2 == 0) ? "even" : "odd");
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>Short-circuit = Branches</strong><p>كل <code>&amp;&amp;</code> و<code>||</code> بيتحولوا لـ <b>conditional jumps</b> منفصلة. فـ <code>if (a &amp;&amp; b &amp;&amp; c)</code> = 3 مقارنات كل واحدة بتنط لـ "else" لو فشلت. لما تشوف سلسلة <code>cmp/jz</code> بتنط كلها لنفس المكان، دي غالبًا <code>&amp;&amp;</code>.</p></div></div>
+
+        <h3 class="sub">الـ Bitwise Operators <span class="tag">bits</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>العملية</th><th>القاعدة</th><th>مثال (8-bit)</th><th>استخدامها</th></tr></thead>
+            <tbody>
+              <tr><td><code>a &amp; b</code> AND</td><td>1 لو الاتنين 1</td><td><code>1100 &amp; 1010 = 1000</code></td><td><b>اختبار / مسح</b> bits (mask)</td></tr>
+              <tr><td><code>a | b</code> OR</td><td>1 لو أي واحد 1</td><td><code>1100 | 1010 = 1110</code></td><td><b>تفعيل</b> bits / دمج flags</td></tr>
+              <tr><td><code>a ^ b</code> XOR</td><td>1 لو مختلفين</td><td><code>1100 ^ 1010 = 0110</code></td><td><b>قلب</b> bits / تشفير</td></tr>
+              <tr><td><code>~a</code> NOT</td><td>اقلب كل bit</td><td><code>~1100 0000 = 0011 1111</code></td><td>عمل masks معكوسة</td></tr>
+              <tr><td><code>a &lt;&lt; n</code></td><td>زحلق شمال n خانة (املا أصفار)</td><td><code>0001 &lt;&lt; 3 = 1000</code></td><td>ضرب في 2ⁿ</td></tr>
+              <tr><td><code>a &gt;&gt; n</code></td><td>زحلق يمين n خانة</td><td><code>1000 &gt;&gt; 3 = 0001</code></td><td>قسمة على 2ⁿ / استخراج fields</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">الأربع عمليات اللي هتستخدمها كل يوم على الـ bits <span class="tag">set · clear · toggle · test</span></h3>
+        <c-example file="bit_ops.c">
+#include <stdio.h>
+#include <stdint.h>
+
+static void print_bits(const char *label, uint8_t v) {
+    printf("%-12s ", label);
+    for (int i = 7; i >= 0; i--)
+        putchar((v >> i) & 1 ? '1' : '0');
+    printf("  (0x%02X)\n", v);
+}
+
+int main(void) {
+    uint8_t flags = 0x00;
+    print_bits("start", flags);
+
+    flags |= (1u << 3);                 /* SET    bit 3 */
+    print_bits("set bit 3", flags);
+
+    flags |= (1u << 0) | (1u << 7);     /* SET    bits 0 and 7 */
+    print_bits("set 0,7", flags);
+
+    flags &= (uint8_t)~(1u << 0);       /* CLEAR  bit 0 */
+    print_bits("clear bit 0", flags);
+
+    flags ^= (1u << 3);                 /* TOGGLE bit 3 */
+    print_bits("toggle 3", flags);
+
+    printf("bit 7 is %s\n", (flags & (1u << 7)) ? "ON" : "OFF");   /* TEST */
+    printf("low nibble = 0x%X, high nibble = 0x%X\n", 0xA7 & 0x0F, (0xA7 >> 4) & 0x0F);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">Flags: نفس الطريقة اللي بيستخدمها Windows <span class="tag">bitmasks</span></h3>
+        <p>الـ APIs بتجمع خيارات كتير في رقم واحد، كل خيار bit. لما تشوف في الـ disassembly <code>push 40h</code> قبل <code>VirtualAlloc</code>، لازم تعرف إن <code>0x40</code> = <code>PAGE_EXECUTE_READWRITE</code> — علامة خطيرة (ذاكرة قابلة للكتابة والتنفيذ = غالبًا shellcode أو unpacking).</p>
+        <c-example file="flags.c">
+#include <stdio.h>
+#include <stdint.h>
+
+/* Real values from winnt.h */
+#define PAGE_READONLY           0x02
+#define PAGE_READWRITE          0x04
+#define PAGE_EXECUTE_READ       0x20
+#define PAGE_EXECUTE_READWRITE  0x40
+#define MEM_COMMIT              0x00001000
+#define MEM_RESERVE             0x00002000
+
+static void describe_protect(uint32_t p) {
+    printf("protect 0x%02X:", p);
+    if (p & (PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) printf(" EXEC");
+    if (p & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE))    printf(" WRITE");
+    if (p == PAGE_EXECUTE_READWRITE)                       printf("  <-- RWX, suspicious!");
+    printf("\n");
+}
+
+int main(void) {
+    uint32_t alloc_type = MEM_COMMIT | MEM_RESERVE;
+    printf("MEM_COMMIT|MEM_RESERVE = 0x%X\n", alloc_type);
+    printf("has COMMIT?  %s\n", (alloc_type & MEM_COMMIT) ? "yes" : "no");
+
+    describe_protect(PAGE_READONLY);
+    describe_protect(PAGE_EXECUTE_READ);
+    describe_protect(PAGE_EXECUTE_READWRITE);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">XOR: أهم عملية في الـ Malware Analysis <span class="tag">^</span></h3>
+        <p>خصائص الـ XOR اللي لازم تحفظها: <code>a ^ 0 = a</code> · <code>a ^ a = 0</code> · <code>a ^ k ^ k = a</code> (التشفير وفكه <b>نفس العملية</b>) · وتبديلية: <code>a ^ b = b ^ a</code>. عشان كده الـ XOR هو أشهر طريقة لإخفاء الـ strings والـ configs في الـ malware.</p>
+        <c-example file="xor.c">
+#include <stdio.h>
+#include <string.h>
+
+static void xor_buf(unsigned char *buf, size_t len, unsigned char key) {
+    for (size_t i = 0; i < len; i++)
+        buf[i] ^= key;
+}
+
+int main(void) {
+    unsigned char msg[] = "cmd.exe /c whoami";
+    size_t len = strlen((char *)msg);
+
+    xor_buf(msg, len, 0x5A);                  /* "encrypt" */
+    printf("encoded: ");
+    for (size_t i = 0; i < len; i++) printf("%02X ", msg[i]);
+    printf("\n");
+
+    xor_buf(msg, len, 0x5A);                  /* same op decrypts */
+    printf("decoded: %s\n", msg);
+
+    /* Known-plaintext attack: plaintext ^ ciphertext = key */
+    unsigned char plain = 'c', cipher = 0x39;
+    printf("recovered key: 0x%02X\n", plain ^ cipher);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>xor eax, eax مش تشفير!</strong><p>لما الـ register يتعمله XOR مع نفسه (<code>xor eax, eax</code>) ده مجرد طريقة سريعة وقصيرة لـ <code>eax = 0</code>. أما <b>XOR بين register وقيمة تانية جوه loop</b> بيمشي على buffer — ده decoder ولازم توقف عنده. أداة زي <b>FLOSS</b> و<b>CyberChef</b> بتساعدك تفك الأنواع البسيطة.</p></div></div>
+        <div class="callout tip"><span class="ci">🗝️</span><div><strong>Known-plaintext</strong><p>لو عارف جزء من النص الأصلي (مثلًا كل الـ PE files بتبدأ بـ <code>MZ</code>، والـ URLs بتبدأ بـ <code>http</code>)، تقدر تجيب الـ key بـ XOR بين الـ plaintext والـ ciphertext. ده أساس كسر الـ XOR في الـ samples.</p></div></div>
+
+        <h3 class="sub">الـ Shifts: منطقي vs حسابي <span class="tag">shr · sar</span></h3>
+        <ul>
+          <li><code>&lt;&lt;</code> على unsigned = ضرب في 2ⁿ. على signed سالب أو overflow = UB.</li>
+          <li><code>&gt;&gt;</code> على <b>unsigned</b> = <b>logical shift</b> (بيملا أصفار) ← <code>shr</code>.</li>
+          <li><code>&gt;&gt;</code> على <b>signed سالب</b> = implementation-defined، وgcc/MSVC بيعملوا <b>arithmetic shift</b> (بيملا بالـ sign bit) ← <code>sar</code>.</li>
+          <li>الـ shift بعدد ≥ عرض النوع (<code>x &lt;&lt; 32</code> لـ 32-bit) = <b>UB</b>.</li>
+        </ul>
+        <c-example file="shifts.c">
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    int32_t  s = -16;
+    uint32_t u = 0xFFFFFFF0u;        /* same bits as -16 */
+
+    printf("signed   -16 >> 2 = %d (0x%08X)  arithmetic\n", s >> 2, (uint32_t)(s >> 2));
+    printf("unsigned  u  >> 2 = %u (0x%08X)  logical\n", u >> 2, u >> 2);
+    printf("1 << 10 = %d\n", 1 << 10);
+    printf("100 >> 3 = %d  (100 / 8)\n", 100 >> 3);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">الـ Rotation: قلب الـ hashing والـ crypto <span class="tag">rol · ror</span></h3>
+        <p>C مفيهاش operator للـ rotate، بس الـ CPU فيه (<code>rol</code>/<code>ror</code>). الـ compilers بتتعرف على الـ pattern ده وبتحوله لـ instruction واحدة. هتشوف <code>ror 13</code> كتير في <b>API hashing</b> (الـ malware بيدور على الدوال بالـ hash بتاع اسمها بدل الاسم نفسه).</p>
+        <c-example file="rotate.c">
+#include <stdio.h>
+#include <stdint.h>
+
+static uint32_t rol32(uint32_t x, unsigned n) { n &= 31; return (x << n) | (x >> ((32 - n) & 31)); }
+static uint32_t ror32(uint32_t x, unsigned n) { n &= 31; return (x >> n) | (x << ((32 - n) & 31)); }
+
+/* The classic "ROR-13" hash used by a lot of shellcode to find APIs */
+static uint32_t ror13_hash(const char *s) {
+    uint32_t h = 0;
+    while (*s) {
+        h = ror32(h, 13);
+        h += (uint8_t)*s++;
+    }
+    return h;
+}
+
+int main(void) {
+    printf("rol32(0x80000001, 1) = 0x%08X\n", rol32(0x80000001u, 1));
+    printf("ror32(0x80000001, 1) = 0x%08X\n", ror32(0x80000001u, 1));
+    printf("ror13(\"LoadLibraryA\")   = 0x%08X\n", ror13_hash("LoadLibraryA"));
+    printf("ror13(\"GetProcAddress\") = 0x%08X\n", ror13_hash("GetProcAddress"));
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>ليه ده مهم؟</strong><p>لو لقيت في sample ثابت زي <code>0xEC0E4E8E</code> بيتقارن بنتيجة loop فيها <code>ror reg, 0Dh</code> — ده hash لاسم API. المحللين بيحسبوا الـ hashes لكل أسماء الـ APIs ويعملوا جدول عكسي، أو بيستخدموا plugins جاهزة (زي <b>HashDB</b> في IDA). شغّل المثال واحفظ أول hash منهم!</p></div></div>
+
+        <h3 class="sub">الـ Compiler والـ Bits: إيه اللي هتشوفه في الـ Assembly <span class="tag">idioms</span></h3>
+        <p>ده ناتج <b>gcc 15.2 -O2</b> حقيقي لدوال بسيطة — اتعلم تعرف الـ patterns دي من أول نظرة:</p>
+        <div class="side-by-side">
+          <c-example file="idioms.c" norun>
+#include <stdint.h>
+
+uint32_t rol32(uint32_t x, unsigned n) {
+    n &= 31;
+    return (x << n) | (x >> ((32 - n) & 31));
+}
+int      sar(int x)         { return x >> 3; }
+unsigned shr(unsigned x)    { return x >> 3; }
+int      is_zero(int x)     { return x == 0; }
+int      mul9(int x)        { return x * 9; }
+int      set_bit(int f)     { return f | 0x4; }
+          </c-example>
+          <asm-block file="idioms.s (gcc -O2)">
+rol32:
+        mov     eax, edi
+        mov     ecx, esi
+        rol     eax, cl         ; whole expression -> 1 instruction
+        ret
+sar:
+        mov     eax, edi
+        sar     eax, 3          ; signed   >> : arithmetic
+        ret
+shr:
+        mov     eax, edi
+        shr     eax, 3          ; unsigned >> : logical
+        ret
+is_zero:
+        xor     eax, eax        ; eax = 0
+        test    edi, edi        ; AND without storing -> sets ZF
+        sete    al              ; al = (ZF == 1)
+        ret
+mul9:
+        lea     eax, [rdi+rdi*8] ; x + x*8, no imul!
+        ret
+set_bit:
+        mov     eax, edi
+        or      eax, 4
+        ret
+          </asm-block>
+        </div>
+
+        <h3 class="sub">الأولويات (Precedence) — مصدر bugs كتير <span class="tag">precedence</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الأولوية (من الأعلى)</th><th>العمليات</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td><code>() [] -&gt; .</code> و postfix <code>++ --</code></td></tr>
+              <tr><td>2</td><td>unary: <code>! ~ ++ -- + - * &amp; (type) sizeof</code></td></tr>
+              <tr><td>3</td><td><code>* / %</code></td></tr>
+              <tr><td>4</td><td><code>+ -</code></td></tr>
+              <tr><td>5</td><td><code>&lt;&lt; &gt;&gt;</code></td></tr>
+              <tr><td>6</td><td><code>&lt; &lt;= &gt; &gt;=</code></td></tr>
+              <tr><td>7</td><td><code>== !=</code></td></tr>
+              <tr><td>8 · 9 · 10</td><td><code>&amp;</code> ثم <code>^</code> ثم <code>|</code> ⚠ <b>أقل من المقارنة!</b></td></tr>
+              <tr><td>11 · 12</td><td><code>&amp;&amp;</code> ثم <code>||</code></td></tr>
+              <tr><td>13 · 14 · 15</td><td><code>?:</code> ثم التخصيص <code>= += …</code> ثم <code>,</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="precedence_bug.c" allow-warn>
+#include <stdio.h>
+
+int main(void) {
+    int flags = 0x6;          /* bits 1 and 2 */
+
+    /* BUG: == binds tighter than &  ->  flags & (0x4 == 0x4) -> flags & 1 */
+    if (flags & 0x4 == 0x4)
+        printf("buggy check: set\n");
+    else
+        printf("buggy check: NOT set (wrong!)\n");
+
+    if ((flags & 0x4) == 0x4)          /* correct: parentheses */
+        printf("fixed check: set\n");
+
+    printf("1 << 2 + 1 = %d (shift by 3, not 5)\n", 1 << 2 + 1);
+    return 0;
+}
+        </c-example>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>القاعدة</strong><p>أي تعبير فيه bitwise مع مقارنة أو shift مع جمع — <b>حط أقواس</b>. والـ compiler بيحذرك (<code>-Wparentheses</code> جوه <code>-Wall</code>) — اقرا التحذيرات!</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 03</h3></div>
+
+          <quiz id="s03-q1" answer="2">
+            <q>عايز تمسح الـ bit رقم 5 من متغير <code>f</code> من غير ما تغيّر باقي الـ bits. الصح؟</q>
+            <o><code>f |= (1 &lt;&lt; 5);</code></o>
+            <o><code>f ^= (1 &lt;&lt; 5);</code></o>
+            <o><code>f &amp;= ~(1 &lt;&lt; 5);</code></o>
+            <o><code>f = f &gt;&gt; 5;</code></o>
+            <good>الـ mask <code>~(1&lt;&lt;5)</code> فيه كل الـ bits = 1 ماعدا bit 5، فالـ AND بيصفّره بس.</good>
+            <bad><code>|=</code> بيفعّل، و<code>^=</code> بيقلب (لو كان 0 هيبقى 1!). المسح = AND مع mask معكوس.</bad>
+          </quiz>
+
+          <quiz id="s03-q2" answer="0">
+            <q>قيمة <code>0xA5 ^ 0xFF</code>؟</q>
+            <o><code>0x5A</code></o>
+            <o><code>0xFF</code></o>
+            <o><code>0xA5</code></o>
+            <o><code>0x00</code></o>
+            <good>XOR مع <code>0xFF</code> = قلب كل الـ bits: <code>1010 0101</code> ← <code>0101 1010</code> = <code>0x5A</code>.</good>
+            <bad>XOR مع 1 بيقلب الـ bit. <code>0xFF</code> كله 1.</bad>
+          </quiz>
+
+          <quiz id="s03-q3" answer="3">
+            <q>byte مشفّر قيمته <code>0x17</code>، وإنت عارف إن الحرف الأصلي هو <code>'M'</code> (<code>0x4D</code>)، والتشفير XOR بـ key ثابت من byte واحد. الـ key كام؟</q>
+            <o><code>0x64</code></o>
+            <o><code>0x36</code></o>
+            <o><code>0x4D</code></o>
+            <o><code>0x5A</code></o>
+            <good><code>key = plain ^ cipher = 0x4D ^ 0x17 = 0x5A</code>. ده known-plaintext attack — وأول bytes في أي PE هي <code>"MZ"</code>!</good>
+            <bad>الـ XOR بيعكس نفسه: <code>plain ^ key = cipher</code> يعني <code>key = plain ^ cipher</code>.</bad>
+          </quiz>
+
+          <quiz id="s03-q4" answer="1">
+            <q>شفت <code>xor ecx, ecx</code> في بداية دالة. معناها إيه غالبًا؟</q>
+            <o>تشفير الـ register بـ key</o>
+            <o><code>ecx = 0</code> (طريقة قصيرة وسريعة للتصفير)</o>
+            <o>مقارنة <code>ecx</code> بنفسه</o>
+            <o>قلب الـ bits بتاعة <code>ecx</code></o>
+            <good><code>x ^ x = 0</code> دايمًا. الـ compilers بتفضّلها على <code>mov ecx, 0</code> لأنها أقصر (2 bytes بدل 5) والـ CPU بيتعرف عليها.</good>
+            <bad>إيه نتيجة XOR أي قيمة مع نفسها؟</bad>
+          </quiz>
+
+          <quiz id="s03-q5" answer="2">
+            <q>في الـ Assembly لقيت <code>sar eax, 4</code>. ده بيقولك إيه عن الكود الأصلي؟</q>
+            <o>قسمة unsigned على 16</o>
+            <o>ضرب في 16</o>
+            <o>Right shift على قيمة <b>signed</b> (arithmetic shift بيحافظ على الإشارة)</o>
+            <o>rotate يمين 4 مرات</o>
+            <good><code>sar</code> = shift arithmetic right، بيملا بالـ sign bit — gcc بيستخدمه لـ <code>&gt;&gt;</code> على signed. الـ unsigned بياخد <code>shr</code>.</good>
+            <bad>فرّق بين <code>shr</code> (logical، أصفار) و<code>sar</code> (arithmetic، sign bit).</bad>
+          </quiz>
+
+          <quiz id="s03-q6" answer="0">
+            <q>نتيجة <code>(6 &amp; 4 == 4)</code> في C إيه؟</q>
+            <o><code>0</code></o>
+            <o><code>1</code></o>
+            <o><code>4</code></o>
+            <o><code>6</code></o>
+            <good><code>==</code> أولويته أعلى من <code>&amp;</code>، فده <code>6 &amp; (4 == 4)</code> = <code>6 &amp; 1</code> = <code>0</code>. Bug كلاسيكي!</good>
+            <bad>راجع جدول الـ precedence: مين أعلى، <code>&amp;</code> ولا <code>==</code>؟</bad>
+          </quiz>
+
+          <quiz id="s03-q7" answer="3">
+            <q>الـ compiler حوّل <code>x * 5</code> لـ instruction واحدة. أنهي واحدة غالبًا؟</q>
+            <o><code>mul eax, 5</code></o>
+            <o><code>shl eax, 5</code></o>
+            <o><code>add eax, 5</code></o>
+            <o><code>lea eax, [rdi+rdi*4]</code></o>
+            <good><code>lea</code> بيحسب عناوين بالشكل <code>base + index*scale</code> (scale = 1,2,4,8)، فالـ compilers بتستخدمه لضرب سريع: <code>x + x*4 = 5x</code>.</good>
+            <bad>الـ compiler بيستغل instruction حساب العناوين عشان يضرب في 3 و5 و9.</bad>
+          </quiz>
+
+          <challenge id="s03-c1" title="فك config مشفّر بـ XOR">
+            <desc>الـ malware مخزّن الـ C2 domain مشفّر بـ XOR بـ key ثابت = <code>0x37</code>. فك الـ bytes واطبع النص. الناتج المطلوب:<br><code>evil-c2.example</code></desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    unsigned char enc[] = { 0x52, 0x41, 0x5E, 0x5B, 0x1A, 0x54, 0x05, 0x19,
+                            0x52, 0x4F, 0x56, 0x5A, 0x47, 0x5B, 0x52 };
+    unsigned char key = 0x37;
+    // TODO: decode and print as text
+
+    printf("\n");
+    return 0;
+}
+            </starter>
+            <expected>
+evil-c2.example
+            </expected>
+            <solution>
+#include <stdio.h>
+
+int main(void) {
+    unsigned char enc[] = { 0x52, 0x41, 0x5E, 0x5B, 0x1A, 0x54, 0x05, 0x19,
+                            0x52, 0x4F, 0x56, 0x5A, 0x47, 0x5B, 0x52 };
+    unsigned char key = 0x37;
+    for (size_t i = 0; i < sizeof enc; i++)
+        putchar(enc[i] ^ key);
+    printf("\n");
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s03-c2" title="عد الـ bits (popcount)" level="2">
+            <desc>اكتب <code>int popcount(uint32_t x)</code> بترجع عدد الـ bits اللي قيمتها 1، من غير built-ins. اطبع:<br><code>popcount(0x00000000) = 0</code><br><code>popcount(0x000000FF) = 8</code><br><code>popcount(0xDEADBEEF) = 24</code><br><code>popcount(0xFFFFFFFF) = 32</code><br>تحدي إضافي: <code>x &amp;= x - 1</code> بتمسح أقل bit = 1 — ليه؟</desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+int popcount(uint32_t x) {
+    int count = 0;
+    // TODO
+    return count;
+}
+
+int main(void) {
+    uint32_t v[] = { 0x00000000, 0x000000FF, 0xDEADBEEF, 0xFFFFFFFF };
+    for (int i = 0; i < 4; i++)
+        printf("popcount(0x%08X) = %d\n", v[i], popcount(v[i]));
+    return 0;
+}
+            </starter>
+            <expected>
+popcount(0x00000000) = 0
+popcount(0x000000FF) = 8
+popcount(0xDEADBEEF) = 24
+popcount(0xFFFFFFFF) = 32
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+int popcount(uint32_t x) {
+    int count = 0;
+    while (x) {
+        x &= x - 1;     /* clears the lowest set bit */
+        count++;
+    }
+    return count;
+}
+
+int main(void) {
+    uint32_t v[] = { 0x00000000, 0x000000FF, 0xDEADBEEF, 0xFFFFFFFF };
+    for (int i = 0; i < 4; i++)
+        printf("popcount(0x%08X) = %d\n", v[i], popcount(v[i]));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s03-c3" title="ROR-13 API Hash Resolver" level="3">
+            <desc>الـ shellcode بيدور على API بالـ hash بتاعه. عندك hash مستهدف = <code>0x7C0DFCAA</code>. احسب ror13 hash (نفس الخوارزمية في المثال فوق: <code>h = ror(h,13); h += c;</code>) لكل اسم في القائمة، واطبع الاسم اللي الـ hash بتاعه مطابق:<br><code>match: GetProcAddress</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+static uint32_t ror32(uint32_t x, unsigned n) {
+    n &= 31;
+    return (x >> n) | (x << ((32 - n) & 31));
+}
+
+uint32_t ror13_hash(const char *s) {
+    uint32_t h = 0;
+    // TODO
+    (void)s;
+    return h;
+}
+
+int main(void) {
+    const char *names[] = { "LoadLibraryA", "VirtualAlloc", "GetProcAddress", "ExitProcess" };
+    uint32_t target = 0x7C0DFCAA;
+    for (int i = 0; i < 4; i++) {
+        // TODO: compare and print "match: <name>"
+    }
+    (void)names; (void)target; (void)ror32;
+    return 0;
+}
+            </starter>
+            <expected>
+match: GetProcAddress
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+static uint32_t ror32(uint32_t x, unsigned n) {
+    n &= 31;
+    return (x >> n) | (x << ((32 - n) & 31));
+}
+
+uint32_t ror13_hash(const char *s) {
+    uint32_t h = 0;
+    while (*s) {
+        h = ror32(h, 13);
+        h += (uint8_t)*s++;
+    }
+    return h;
+}
+
+int main(void) {
+    const char *names[] = { "LoadLibraryA", "VirtualAlloc", "GetProcAddress", "ExitProcess" };
+    uint32_t target = 0x7C0DFCAA;
+    for (int i = 0; i < 4; i++) {
+        if (ror13_hash(names[i]) == target)
+            printf("match: %s\n", names[i]);
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

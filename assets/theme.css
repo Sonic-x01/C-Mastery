@@ -1,0 +1,184 @@
+/* ============================================================
+   C Mastery — design layer (loaded last)
+   Eye comfort, RE-flavoured identity, motion polish.
+   ============================================================ */
+
+/* ---------- Calmer palette (dark) ---------- */
+:root{
+  --bg:#060a10;
+  --bg-2:#0a1018;
+  --text:#dbe4f0;
+  --muted:#93a2b8;
+  --dim:#66768e;
+  --code-bg:#070c14;
+  --glow-a:rgba(61,220,151,.16);
+  --glow-b:rgba(255,180,84,.12);
+  --reading:16.5px;
+}
+html[data-theme="light"]{
+  --bg:#f5f7fa;
+  --bg-2:#edf1f6;
+  --text:#14202e;
+  --muted:#46566b;
+  --dim:#64748b;
+  --code-bg:#0b1220;
+  --glow-a:rgba(5,135,90,.12);
+  --glow-b:rgba(180,83,9,.1);
+}
+
+/* Reading size control (set by effects.js) */
+html[data-size="sm"]{--reading:15px}
+html[data-size="lg"]{--reading:18px}
+html[data-size="xl"]{--reading:19.5px}
+
+/* ---------- Background: softer aurora in course colours ---------- */
+.aurora span{opacity:.42;filter:blur(110px)}
+.aurora span:nth-child(1){background:rgba(61,220,151,.20)}
+.aurora span:nth-child(2){background:rgba(120,90,220,.16)}
+.aurora span:nth-child(3){background:rgba(255,180,84,.10)}
+body::before{
+  background-image:
+    linear-gradient(rgba(61,220,151,.045) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(61,220,151,.045) 1px,transparent 1px);
+}
+body::after{background:linear-gradient(180deg,transparent 0%,rgba(6,10,16,.4) 40%,var(--bg) 100%)}
+html[data-theme="light"] .aurora span{opacity:.5}
+html[data-theme="light"] body::after{background:linear-gradient(180deg,transparent 0%,rgba(245,247,250,.45) 40%,var(--bg) 100%)}
+
+/* ---------- Reading comfort ---------- */
+.section > p,.section > ul,.section > ol,.project-body > p{font-size:var(--reading);line-height:2.02;max-width:80ch}
+.section > ul li,.section > ol li{margin-bottom:6px}
+.section > p b,.section > ul b{color:var(--text)}
+.section-head .lede{font-size:calc(var(--reading) - .5px);line-height:2}
+.callout p{font-size:calc(var(--reading) - 1.5px);line-height:1.95}
+table.ref td,table.ref th{font-size:calc(var(--reading) - 2.5px)}
+.quiz-q{font-size:calc(var(--reading) - 1.5px)}
+.ch-desc{font-size:calc(var(--reading) - 1.5px);line-height:1.95}
+:not(pre) > code{unicode-bidi:isolate}
+
+/* ---------- Scroll progress ---------- */
+.scroll-progress i{background:linear-gradient(90deg,#3ddc97,#ffb454)!important;box-shadow:0 0 12px rgba(61,220,151,.6)}
+
+/* ---------- Section identity: hex index + glowing divider ---------- */
+.section{position:relative;border-top:0}
+.section::before{
+  content:"";position:absolute;top:0;inset-inline:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(61,220,151,.35) 30%,rgba(255,180,84,.3) 70%,transparent);
+}
+.section::after{
+  content:"";position:absolute;top:-4px;inset-inline-start:50%;width:8px;height:8px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 14px 3px rgba(61,220,151,.55);transform:translateX(50%);
+}
+.section-index{
+  direction:ltr;letter-spacing:-2px;
+  background:linear-gradient(180deg,rgba(61,220,151,.75),rgba(255,180,84,.22));
+  -webkit-background-clip:text;background-clip:text;
+}
+.section-index::before{content:"0x";font-size:.36em;letter-spacing:0;margin-inline-end:2px;vertical-align:.95em;opacity:.8}
+.section.fx-seen .section-index{box-shadow:none;filter:drop-shadow(0 8px 22px rgba(61,220,151,.28))}
+.section-head h2::after{background:linear-gradient(to left,var(--accent),var(--accent-2),transparent)}
+.section-head .eyebrow{color:var(--accent-2)!important;font-family:var(--mono);letter-spacing:1.5px}
+
+/* ---------- Cards & spotlight in course colours ---------- */
+.card::before,.source::before{background:radial-gradient(280px circle at var(--mx,50%) var(--my,50%),rgba(61,220,151,.13),transparent 65%)}
+.card{transition:transform .35s var(--ease),border-color .35s var(--ease),background .35s var(--ease),box-shadow .35s var(--ease)}
+
+/* ---------- Code blocks: disassembler feel ---------- */
+.code-block{border-color:rgba(120,150,190,.14);box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 18px 40px -30px rgba(0,0,0,.9)}
+.code-block:hover{border-color:rgba(61,220,151,.32);box-shadow:0 20px 46px -28px rgba(61,220,151,.42)}
+.code-block.asm{border-color:rgba(255,180,84,.2)}
+.code-block.asm:hover{border-color:rgba(255,180,84,.42);box-shadow:0 20px 46px -28px rgba(255,180,84,.38)}
+.code-head{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01))}
+.code-block.asm .code-head{background:linear-gradient(180deg,rgba(255,180,84,.07),rgba(255,180,84,.01))}
+.code-pre{font-size:13px;line-height:1.78}
+.gutter{opacity:.5}
+.tok-com{color:#6a7d97}
+
+/* side-by-side C | ASM : give the assembly more room */
+.side-by-side{grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);align-items:stretch}
+.side-by-side .code-block{display:flex;flex-direction:column}
+.side-by-side .code-body{flex:1}
+.side-by-side .code-pre{font-size:12.2px}
+@media (max-width:1100px){.side-by-side{grid-template-columns:minmax(0,1fr)}}
+
+/* ASM panel slides in */
+.asm-panel{animation:fx-slide .35s var(--ease)}
+@keyframes fx-slide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.asm-head{background:linear-gradient(90deg,rgba(255,180,84,.08),transparent)}
+.run-out{animation:fx-slide .3s var(--ease)}
+
+/* ---------- Quizzes ---------- */
+.quiz{transition:border-color .3s var(--ease),box-shadow .3s var(--ease)}
+.quiz.solved{border-color:rgba(61,220,151,.35);box-shadow:0 14px 34px -26px rgba(61,220,151,.6)}
+.quiz-q{flex-wrap:wrap}
+.quiz-q .q-code{
+  flex-basis:100%;margin:10px 0 4px;padding:12px 16px;border-radius:10px;direction:ltr;text-align:left;
+  background:var(--code-bg);border:1px solid rgba(120,150,190,.16);overflow-x:auto;
+  font:12.6px/1.7 var(--mono);color:#cfd8ea;font-weight:400;white-space:pre
+}
+.quiz-q .q-code code{font-size:inherit;background:none;border:0;padding:0;color:inherit}
+.option{transition:transform .2s var(--ease),border-color .2s var(--ease),background .2s var(--ease)}
+.option .otxt{text-align:start}
+.option.correct{animation:fx-pop .45s var(--ease)}
+.option.wrong{animation:fx-shake .4s var(--ease)}
+@keyframes fx-pop{40%{transform:scale(1.015)}}
+@keyframes fx-shake{20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
+
+/* ---------- Challenges ---------- */
+.challenge.done{border-color:rgba(61,220,151,.4)!important;box-shadow:0 16px 40px -28px rgba(61,220,151,.7)}
+.editor textarea{line-height:1.75;tab-size:4}
+.editor:focus-within{border-color:rgba(61,220,151,.45);box-shadow:0 0 0 3px rgba(61,220,151,.12)}
+
+/* ---------- Converter: compact & aligned ---------- */
+.conv{max-width:760px}
+.bc-row{grid-template-columns:240px minmax(0,1fr)}
+.bc-row code{justify-self:end;unicode-bidi:isolate}
+
+/* ---------- Memory diagrams ---------- */
+.mem{box-shadow:0 18px 40px -30px rgba(0,0,0,.9)}
+.mem-row{transition:background .25s var(--ease)}
+.mem-row:hover{background:rgba(61,220,151,.06)}
+
+/* ---------- Hero: memory-dump backdrop ---------- */
+.hero{isolation:isolate}
+main{overflow-x:clip}
+#hexRain{
+  position:absolute;inset:0;z-index:-1;pointer-events:none;width:100%;height:100%;
+  opacity:.5;
+  mask-image:radial-gradient(ellipse 70% 70% at 30% 45%,#000 10%,transparent 75%);
+  -webkit-mask-image:radial-gradient(ellipse 70% 70% at 30% 45%,#000 10%,transparent 75%);
+}
+html[data-theme="light"] #hexRain{opacity:.35}
+.hero h1 .grad{
+  background:linear-gradient(120deg,#3ddc97 10%,#ffb454 90%)!important;
+  -webkit-background-clip:text!important;background-clip:text!important;color:transparent!important;
+  filter:drop-shadow(0 6px 24px rgba(61,220,151,.35));
+}
+.hero .terminal::before{background:conic-gradient(from var(--spin,0deg),transparent 0 62%,#3ddc97 74%,#ffb454 86%,transparent 96%)}
+.stat{transition:transform .3s var(--ease),border-color .3s var(--ease)}
+.stat:hover{transform:translateY(-3px);border-color:rgba(61,220,151,.35)}
+
+/* ---------- Buttons ---------- */
+.btn-primary{background:linear-gradient(135deg,#12a873,#3ddc97)!important;color:#02150d!important}
+.btn-primary:hover{box-shadow:0 14px 32px -12px rgba(61,220,151,.75)}
+
+/* ---------- Topbar reading-size control ---------- */
+.size-ctl{display:flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:12px;padding:2px;background:var(--panel)}
+.size-ctl button{
+  width:30px;height:30px;border:0;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;
+  font:700 12px var(--mono);transition:background .2s,color .2s
+}
+.size-ctl button:hover{background:var(--panel-2);color:var(--text)}
+@media (max-width:560px){.size-ctl{display:none}}
+
+/* ---------- Nav ---------- */
+.nav a.active{background:linear-gradient(270deg,rgba(61,220,151,.15),rgba(61,220,151,.02))!important}
+.nav a.done .ico{filter:none}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion:reduce){
+  .asm-panel,.run-out,.option.correct,.option.wrong{animation:none}
+  #hexRain{display:none}
+  .aurora span{animation:none}
+}
+@media print{#hexRain,.size-ctl,.section::after{display:none}}

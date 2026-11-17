@@ -1,0 +1,356 @@
+      <section class="section" id="s11" data-part="الجزء 2 · الذاكرة والبوينترز" data-nav="Preprocessor و Multi-file" data-icon="🧰" data-keywords="preprocessor define macro include guard ifdef ifndef if pragma once stringify token pasting x-macro __FILE__ __LINE__ _WIN32 header source extern linkage static library dll makefile build assert pdb path">
+        <div class="section-head">
+          <span class="section-index">11</span>
+          <div>
+            <p class="eyebrow">المرحلة الحادية عشر</p>
+            <h2>الـ Preprocessor، المشاريع متعددة الملفات، والـ Build</h2>
+            <p class="lede">قبل الـ compile، الـ preprocessor بيعمل <b>نسخ ولصق نصي</b>: بيدخّل الـ headers، بيستبدل الـ macros، وبيشيل أجزاء من الكود حسب الشروط. كل ده <b>بيختفي</b> من الـ binary — لكن بيسيب آثار مهمة جدًا للمحلل: مسارات ملفات، أسماء دوال، رسايل debug، وأحيانًا مسار الـ PDB بتاع جهاز الكاتب نفسه.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">#define: ثوابت و Macros <span class="tag">macros</span></h3>
+        <c-example file="macros.c">
+#include <stdio.h>
+
+#define BUF_SIZE     256
+#define C2_PORT      443
+#define SQUARE_BAD(x) x * x             /* BUG: no parentheses */
+#define SQUARE(x)    ((x) * (x))        /* correct */
+#define MAX(a, b)    ((a) > (b) ? (a) : (b))
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+
+int main(void) {
+    printf("BUF_SIZE=%d C2_PORT=%d\n", BUF_SIZE, C2_PORT);
+    printf("SQUARE_BAD(2+3) = %d   (expands to 2+3*2+3)\n", SQUARE_BAD(2 + 3));
+    printf("SQUARE(2+3)     = %d\n", SQUARE(2 + 3));
+
+    int i = 5;
+    int m = MAX(i++, 3);                /* DANGER: i++ is evaluated twice */
+    printf("MAX(i++,3) = %d, i is now %d (not 6!)\n", m, i);
+
+    int ports[] = { 80, 443, 8080, 8443 };
+    printf("ARRAY_LEN(ports) = %zu\n", ARRAY_LEN(ports));
+    return 0;
+}
+        </c-example>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>قواعد الـ macros الآمنة</strong><p>(1) حط أقواس حوالين كل parameter وحوالين الـ macro كله. (2) متبعتش arguments ليها side effects (<code>i++</code>، استدعاء دالة). (3) لو ينفع، استخدم <code>static inline</code> function أو <code>enum</code>/<code>const</code> بدل الـ macro — ليها type checking وبتظهر في الـ debugger.</p></div></div>
+
+        <h3 class="sub">Conditional Compilation <span class="tag">#if · #ifdef</span></h3>
+        <c-example file="conditional.c">
+#include <stdio.h>
+
+/* #define DEBUG_BUILD */                 /* uncomment to enable logging */
+
+#ifdef DEBUG_BUILD
+  #define LOG(...) printf("[dbg] " __VA_ARGS__)
+#else
+  #define LOG(...) ((void)0)                /* vanishes completely in release */
+#endif
+
+int main(void) {
+#if defined(_WIN32)
+    puts("platform: Windows");
+#elif defined(__linux__)
+    puts("platform: Linux");
+#elif defined(__APPLE__)
+    puts("platform: macOS");
+#else
+    puts("platform: unknown");
+#endif
+
+#if defined(__x86_64__) || defined(_M_X64)
+    puts("arch: x86-64");
+#endif
+
+    LOG("this only exists in debug builds\n");
+    printf("compiled by GCC %d.%d, C standard %ld\n", __GNUC__, __GNUC_MINOR__, __STDC_VERSION__);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>نسخة الـ debug من الـ malware = هدية</strong><p>الـ malware authors أحيانًا بيسيبوا <code>LOG(...)</code> شغالة بالغلط، أو بيرفعوا نسخة debug. ساعتها الـ binary بيبقى مليان رسايل زي <code>"[+] injecting into %d"</code> بتشرحلك كل خطوة. ولما الـ platform checks بتختلف، هتلاقي samples لنفس العيلة على Windows وLinux بكود مختلف شوية.</p></div></div>
+
+        <h3 class="sub">الـ Macros المعرّفة مسبقًا — وتسريب المعلومات <span class="tag">__FILE__</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ Macro</th><th>القيمة</th></tr></thead>
+            <tbody>
+              <tr><td><code>__FILE__</code></td><td>اسم/مسار الملف المصدري كـ string</td></tr>
+              <tr><td><code>__LINE__</code></td><td>رقم السطر</td></tr>
+              <tr><td><code>__func__</code></td><td>اسم الدالة الحالية (C99 — تقنيًا متغير مش macro)</td></tr>
+              <tr><td><code>__DATE__</code> / <code>__TIME__</code></td><td>تاريخ ووقت الـ compile</td></tr>
+              <tr><td><code>_WIN32</code> / <code>_WIN64</code> / <code>__linux__</code></td><td>نظام التشغيل</td></tr>
+              <tr><td><code>_MSC_VER</code> / <code>__GNUC__</code> / <code>__clang__</code></td><td>الـ compiler ونسخته</td></tr>
+              <tr><td><code>NDEBUG</code></td><td>لو متعرف، <code>assert()</code> بتختفي</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="side-by-side">
+          <c-example file="leak.c" norun>
+#include <stdio.h>
+#define SQUARE(x) ((x) * (x))
+
+int main(void) {
+    int i = 3;
+    printf("%s:%d %s\n", __FILE__, __LINE__, __func__);
+    return SQUARE(i);
+}
+          </c-example>
+          <asm-block file="leak.s (gcc -O2)">
+.LC0:
+        .string "/app/example.c"   ; __FILE__ baked in!
+.LC1:
+        .string "%s:%d %s\n"
+main:
+        sub     rsp, 8
+        mov     ecx, OFFSET FLAT:__func__.0
+        mov     edx, 5             ; __LINE__
+        xor     eax, eax
+        mov     esi, OFFSET FLAT:.LC0
+        mov     edi, OFFSET FLAT:.LC1
+        call    printf
+        mov     eax, 9             ; SQUARE(3) folded
+        add     rsp, 8
+        ret
+__func__.0:
+        .string "main"
+          </asm-block>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>Attribution من الـ strings</strong><p><code>__FILE__</code> بيحط <b>المسار الكامل</b> لملف المصدر في الـ binary — زي <code>C:\Users\<b>dev01</b>\Desktop\loader\src\inject.c</code>. ومع MSVC، الـ debug directory في الـ PE فيها مسار الـ <b>PDB</b> (زي <code>D:\work\project\Release\stage2.pdb</code>). المحللين بيستخدموا المسارات دي لربط samples ببعض وبالـ threat actors — وده مثال حقيقي لإزاي تفاصيل الـ build بتفضح الكاتب.</p></div></div>
+
+        <h3 class="sub">Stringification و Token Pasting <span class="tag"># ##</span></h3>
+        <c-example file="stringify.c">
+#include <stdio.h>
+
+#define STR(x)        #x                   /* turn tokens into a string */
+#define XSTR(x)       STR(x)               /* expand first, then stringify */
+#define VERSION_MAJOR 3
+#define VERSION_MINOR 7
+#define CONCAT(a, b)  a##b                 /* paste tokens together */
+
+/* X-macro: one list -> enum AND name table, always in sync */
+#define COMMAND_LIST(X) \
+    X(CMD_PING,  0x01)  \
+    X(CMD_SHELL, 0x02)  \
+    X(CMD_EXIT,  0x7F)
+
+#define AS_ENUM(name, val)  name = val,
+#define AS_CASE(name, val)  case name: return #name;
+
+enum command { COMMAND_LIST(AS_ENUM) };
+
+static const char *cmd_name(int c) {
+    switch (c) {
+        COMMAND_LIST(AS_CASE)
+        default: return "UNKNOWN";
+    }
+}
+
+int main(void) {
+    printf("%s\n", STR(hello world));
+    printf("version " XSTR(VERSION_MAJOR) "." XSTR(VERSION_MINOR) "\n");
+    int CONCAT(beacon_, count) = 3;          /* declares beacon_count */
+    printf("beacon_count = %d\n", beacon_count);
+    printf("0x02 -> %s, 0x7F -> %s, 0x10 -> %s\n", cmd_name(0x02), cmd_name(0x7F), cmd_name(0x10));
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">مشروع متعدد الملفات <span class="tag">.h + .c</span></h3>
+        <p>الـ <b>header</b> (<code>.h</code>) فيه <b>declarations</b> بس (الواجهة)، والـ <b>source</b> (<code>.c</code>) فيه الـ definitions. كل <code>.c</code> بيتعمله compile لوحده لـ object file، وبعدين الـ linker بيربطهم.</p>
+        <plain-block file="crypto.h" lang="c">
+#ifndef CRYPTO_H          /* include guard: prevents double inclusion */
+#define CRYPTO_H          /* (or simply: #pragma once)                */
+
+#include <stddef.h>
+#include <stdint.h>
+
+void     xor_crypt(uint8_t *buf, size_t len, const uint8_t *key, size_t key_len);
+uint32_t crc32(const uint8_t *data, size_t len);
+
+extern int crypto_calls;  /* declared here, DEFINED in crypto.c */
+
+#endif
+        </plain-block>
+        <plain-block file="crypto.c" lang="c">
+#include "crypto.h"       /* quotes: search the project folder first */
+
+int crypto_calls = 0;     /* the one definition */
+
+static uint32_t table[256];          /* static: private to this file */
+static int table_ready = 0;
+
+static void build_table(void) { /* ... */ table_ready = 1; }
+
+void xor_crypt(uint8_t *buf, size_t len, const uint8_t *key, size_t key_len) {
+    crypto_calls++;
+    for (size_t i = 0; i < len; i++) buf[i] ^= key[i % key_len];
+}
+
+uint32_t crc32(const uint8_t *data, size_t len) {
+    if (!table_ready) build_table();
+    /* ... */
+    (void)data; (void)len;
+    return 0;
+}
+        </plain-block>
+        <plain-block file="terminal" lang="bash">
+# Compile each .c into an object file, then link
+gcc -c crypto.c -o crypto.o
+gcc -c main.c   -o main.o
+gcc main.o crypto.o -o tool
+
+# Static library (.a / .lib): code is COPIED into the executable
+ar rcs libcrypto_mini.a crypto.o
+gcc main.c -L. -lcrypto_mini -o tool
+
+# Shared library (.so / .dll): code is loaded at run time
+gcc -shared -fPIC crypto.c -o libcrypto_mini.so
+
+# See the symbols: T = defined function, U = undefined (imported), t = static
+nm crypto.o
+        </plain-block>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ Linking</th><th>إيه اللي بيحصل</th><th>في الـ RE</th></tr></thead>
+            <tbody>
+              <tr><td><b>Static</b></td><td>كود المكتبة بيتنسخ جوه الـ EXE</td><td>الـ binary كبير، وفيه آلاف الدوال من المكتبة (OpenSSL، zlib…) — استخدم <b>FLIRT</b> (IDA) أو <b>Function ID / BSim</b> (Ghidra) عشان تتعرف عليها وتتجاهلها</td></tr>
+              <tr><td><b>Dynamic</b></td><td>الـ EXE فيه بس أسماء الدوال والـ DLL</td><td>بتظهر في الـ Import Table — أول حاجة بتبص عليها</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">Makefile بسيط <span class="tag">build automation</span></h3>
+        <plain-block file="Makefile" lang="makefile">
+CC      = gcc
+CFLAGS  = -std=c17 -Wall -Wextra -O2 -g
+OBJS    = main.o crypto.o
+
+tool: $(OBJS)
+	$(CC) $(OBJS) -o $@
+
+%.o: %.c crypto.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -f $(OBJS) tool
+        </plain-block>
+        <p>(الأسطر اللي تحت الـ targets لازم تبدأ بـ <b>Tab</b> مش مسافات.) على Windows ممكن تستخدم <code>mingw32-make</code> من MSYS2، أو CMake لو المشروع كبر.</p>
+
+        <h3 class="sub">assert <span class="tag">debug checks</span></h3>
+        <c-example file="assert_demo.c">
+#include <stdio.h>
+#include <assert.h>
+#include <string.h>
+
+static size_t safe_copy(char *dst, size_t dst_size, const char *src) {
+    assert(dst != NULL && src != NULL && dst_size > 0);   /* gone with -DNDEBUG */
+    size_t n = strlen(src);
+    if (n >= dst_size) n = dst_size - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+    return n;
+}
+
+int main(void) {
+    char out[8];
+    size_t n = safe_copy(out, sizeof out, "truncated-string");
+    printf("copied %zu: %s\n", n, out);
+    return 0;
+}
+        </c-example>
+        <p>لو الشرط اتكسر، <code>assert</code> بتطبع الملف والسطر والشرط نفسه كـ string وتقفل البرنامج — وده سبب تاني لظهور مسارات ومعلومات في الـ binaries. في الـ release builds (<code>-DNDEBUG</code>) بتختفي تمامًا.</p>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 11</h3></div>
+
+          <quiz id="s11-q1" answer="1">
+            <q>مع <code>#define DOUBLE(x) x + x</code>، قيمة <code>3 * DOUBLE(2)</code>؟</q>
+            <o>12</o>
+            <o>8</o>
+            <o>10</o>
+            <o>6</o>
+            <good>بتتحول لـ <code>3 * 2 + 2</code> = 8. الحل: <code>#define DOUBLE(x) ((x) + (x))</code>.</good>
+            <bad>الـ macro استبدال نصي حرفي. اكتب التعبير بعد الاستبدال واحسبه بالـ precedence.</bad>
+          </quiz>
+
+          <quiz id="s11-q2" answer="3">
+            <q>وظيفة <code>#ifndef X_H / #define X_H / ... / #endif</code> في أول الـ header؟</q>
+            <o>بتسرّع التنفيذ</o>
+            <o>بتمنع الـ linker من التكرار</o>
+            <o>بتعرّف متغيرات global</o>
+            <o>Include guard: بتمنع محتوى الـ header يتضاف مرتين في نفس الـ translation unit</o>
+            <good>أول مرة <code>X_H</code> مش متعرّف فالمحتوى بيتضاف ويتعرّف. أي <code>#include</code> تاني بيلاقيه متعرّف فيتخطاه.</good>
+            <bad>فكّر إيه اللي بيحصل لو header اتعمل له include من ملفين بيتعمل لهم include في نفس الـ .c.</bad>
+          </quiz>
+
+          <quiz id="s11-q3" answer="0">
+            <q>لقيت في sample string زي <code>C:\Users\kaz\source\repos\Stealer\x64\Release\Stealer.pdb</code>. ده جه منين؟</q>
+            <o>الـ debug directory في الـ PE اللي MSVC بيكتب فيها مسار ملف الـ PDB وقت الـ build</o>
+            <o>الـ malware بيطبعه للمستخدم</o>
+            <o>من Windows نفسه</o>
+            <o>من الـ antivirus</o>
+            <good>الـ PDB path معلومة attribution قوية: اسم المستخدم، اسم المشروع، وهيكل الفولدرات. كتير من الـ reports بتربط samples ببعض عن طريقه.</good>
+            <bad>MSVC بيكتب حاجة عن ملف الـ debug symbols جوه الـ EXE.</bad>
+          </quiz>
+
+          <quiz id="s11-q4" answer="2">
+            <q>دالة متعرّفة <code>static</code> في <code>crypto.c</code> اسمها <code>build_table</code>. ملف <code>main.c</code> حاول يناديها. النتيجة؟</q>
+            <o>بتشتغل عادي</o>
+            <o>Runtime crash</o>
+            <o>Linker error: <code>undefined reference</code> — لأن <code>static</code> بيخليها internal للملف بتاعها</o>
+            <o>الـ preprocessor بيرفضها</o>
+            <good><code>static</code> على مستوى الملف = internal linkage. الدالة مش ظاهرة لأي object file تاني.</good>
+            <bad>إيه معنى <code>static</code> لدالة برا أي block؟</bad>
+          </quiz>
+
+          <quiz id="s11-q5" answer="1">
+            <q>binary حجمه 3 MB وفيه آلاف الدوال، والـ imports قليلة جدًا. أول خطوة منطقية في IDA/Ghidra؟</q>
+            <o>تحلل كل دالة بالترتيب</o>
+            <o>تطبّق library signatures (FLIRT / Function ID) عشان تتعرف على كود المكتبات الـ statically linked وتركّز على كود الكاتب</o>
+            <o>تمسح الـ binary</o>
+            <o>تدوّر على <code>main</code> بالـ strings</o>
+            <good>أغلب الكود في binary زي ده غالبًا مكتبات (CRT، OpenSSL، curl…). الـ signatures بتسمّيها أوتوماتيك وبتوفر عليك ساعات.</good>
+            <bad>Static linking بينسخ كود المكتبات جوه الـ EXE… وده بيأثر إزاي على عدد الدوال؟</bad>
+          </quiz>
+
+          <challenge id="s11-c1" title="Macro للـ bit flags + X-macro للأسماء" level="2">
+            <desc>اكتب macros: <code>BIT(n)</code> و<code>HAS(v, f)</code> (بترجع 0/1). واستخدم X-macro لقايمة capabilities (<code>KEYLOG=0, SCREEN=1, PERSIST=2, SPREAD=3</code>) عشان تطبع اسم كل capability موجودة في <code>caps = 0x0D</code>:<br><code>caps=0x0D</code><br><code>KEYLOG</code><br><code>PERSIST</code><br><code>SPREAD</code></desc>
+            <starter>
+#include <stdio.h>
+
+// TODO: #define BIT(n) ...
+// TODO: #define HAS(v, f) ...
+// TODO: #define CAPS(X) X(KEYLOG, 0) X(SCREEN, 1) X(PERSIST, 2) X(SPREAD, 3)
+
+int main(void) {
+    unsigned caps = 0x0D;
+    printf("caps=0x%02X\n", caps);
+    // TODO: expand CAPS with a macro that prints the name when HAS(caps, BIT(n))
+    return 0;
+}
+            </starter>
+            <expected>
+caps=0x0D
+KEYLOG
+PERSIST
+SPREAD
+            </expected>
+            <solution>
+#include <stdio.h>
+
+#define BIT(n)     (1u << (n))
+#define HAS(v, f)  (((v) & (f)) != 0)
+#define CAPS(X) X(KEYLOG, 0) X(SCREEN, 1) X(PERSIST, 2) X(SPREAD, 3)
+
+int main(void) {
+    unsigned caps = 0x0D;
+    printf("caps=0x%02X\n", caps);
+#define PRINT_IF_SET(name, bit) if (HAS(caps, BIT(bit))) puts(#name);
+    CAPS(PRINT_IF_SET)
+#undef PRINT_IF_SET
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

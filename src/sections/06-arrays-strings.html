@@ -1,0 +1,423 @@
+      <section class="section" id="s06" data-part="الجزء 1 · الأساسيات" data-nav="الـ Arrays والـ Strings" data-icon="🔤" data-keywords="arrays strings char array null terminator strlen strcpy strncpy snprintf strcmp memcpy memset memcmp strchr strstr strtok 2d array row major wchar_t utf-16 wide string decay bounds">
+        <div class="section-head">
+          <span class="section-index">06</span>
+          <div>
+            <p class="eyebrow">المرحلة السادسة</p>
+            <h2>الـ Arrays والـ Strings: بيانات متتالية في الذاكرة</h2>
+            <p class="lede">الـ Array = عناصر من نفس النوع <b>جنب بعض في الذاكرة بدون أي فراغ</b>. والـ string في C مش نوع خاص — هو مجرد array من <code>char</code> بيخلص بـ byte قيمته صفر (<code>'\0'</code>). مفيش طول متخزن، ومفيش حماية من إنك تكتب برا الحدود. وده بالظبط سبب أشهر ثغرات التاريخ.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">الـ Arrays: التعريف والوصول <span class="tag">arrays</span></h3>
+        <c-example file="arrays.c">
+#include <stdio.h>
+
+int main(void) {
+    int ports[5] = { 80, 443, 8080 };     /* missing elements become 0 */
+    int ids[] = { 7, 3, 9, 1 };           /* size deduced: 4 */
+    int zeros[100] = { 0 };               /* all zero */
+
+    size_t n = sizeof ids / sizeof ids[0];  /* element count idiom */
+    printf("ids has %zu elements, %zu bytes\n", n, sizeof ids);
+
+    for (size_t i = 0; i < 5; i++)
+        printf("ports[%zu] = %d\n", i, ports[i]);
+
+    ports[3] = 4444;                      /* write */
+    printf("ports[3] now = %d, zeros[99] = %d\n", ports[3], zeros[99]);
+
+    /* a[i] is EXACTLY *(a + i): even i[a] compiles (don't do it!) */
+    printf("ids[2] = %d, *(ids + 2) = %d, 2[ids] = %d\n", ids[2], *(ids + 2), 2[ids]);
+    return 0;
+}
+        </c-example>
+        <div class="mem">
+          <div class="mem-title">int ids[4] = {7, 3, 9, 1}; — 4 عناصر × 4 bytes = 16 byte متتالية</div>
+          <div class="mem-row"><span class="addr">ids + 0  (+0x00)</span><span class="val">07 00 00 00</span><span class="what">ids[0] = 7</span></div>
+          <div class="mem-row"><span class="addr">ids + 1  (+0x04)</span><span class="val">03 00 00 00</span><span class="what">ids[1] = 3</span></div>
+          <div class="mem-row hl"><span class="addr">ids + 2  (+0x08)</span><span class="val">09 00 00 00</span><span class="what">ids[2] = 9 ← العنوان = base + 2×4</span></div>
+          <div class="mem-row"><span class="addr">ids + 3  (+0x0C)</span><span class="val">01 00 00 00</span><span class="what">ids[3] = 1</span></div>
+          <div class="mem-row warn"><span class="addr">ids + 4  (+0x10)</span><span class="val">?? ?? ?? ??</span><span class="what">برا الـ array! أي حاجة تانية (متغير تاني، return address…)</span></div>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ Array في الـ Assembly</strong><p>الوصول لعنصر = <code>base + index × size</code>. هتشوفه كده: <code>mov eax, DWORD PTR [rbp-32+rax*4]</code> (array من <code>int</code> على الـ stack) أو <code>movzx eax, BYTE PTR [rdx+rax]</code> (array من bytes). <b>الـ scale</b> (×1، ×2، ×4، ×8) بيقولك حجم العنصر = نوعه.</p></div></div>
+        <div class="callout danger"><span class="ci">💥</span><div><strong>C مش بتتحقق من الحدود</strong><p><code>ports[10] = 1;</code> بيعدّي الـ compile عادي وبيكتب في ذاكرة مش بتاعتك = <b>Undefined Behavior</b>. ممكن يقع، ممكن يبوظ متغير تاني بصمت، وممكن (لو المهاجم متحكم في الـ index أو البيانات) يتحول لـ <b>code execution</b>.</p></div></div>
+
+        <h3 class="sub">Arrays متعددة الأبعاد <span class="tag">row-major</span></h3>
+        <c-example file="matrix.c">
+#include <stdio.h>
+
+int main(void) {
+    unsigned char sbox[3][4] = {
+        { 0x63, 0x7C, 0x77, 0x7B },
+        { 0xF2, 0x6B, 0x6F, 0xC5 },
+        { 0x30, 0x01, 0x67, 0x2B },
+    };
+
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 4; c++)
+            printf("%02X ", sbox[r][c]);
+        printf("\n");
+    }
+
+    /* Row-major: [r][c] lives at offset r*COLS + c in one flat block */
+    unsigned char *flat = &sbox[0][0];
+    printf("sbox[1][2] = 0x%02X = flat[1*4+2] = 0x%02X\n", sbox[1][2], flat[1 * 4 + 2]);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>S-Box = بصمة خوارزمية تشفير</strong><p>الـ bytes <code>63 7C 77 7B F2 6B 6F C5</code> هي أول الـ <b>AES S-Box</b>. لما تلاقي جدول ثابت كبير في <code>.rdata</code>، دوّر على أول bytes منه في جوجل — غالبًا هيطلع ثابت لخوارزمية معروفة (AES، CRC32، MD5، SHA-256، RC4…). أدوات زي <b>FindCrypt</b> (IDA/Ghidra) و<b>capa</b> بتعمل ده أوتوماتيك.</p></div></div>
+
+        <h3 class="sub">الـ Strings: array + '\0' <span class="tag">C strings</span></h3>
+        <c-example file="strings_basic.c">
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char name[] = "Emotet";             /* array of 7 bytes: 6 chars + '\0' */
+    const char *lit = "TrickBot";       /* pointer to a literal in .rodata (read-only) */
+    char buf[16] = "abc";               /* rest of the 16 bytes = 0 */
+
+    printf("name = %s | sizeof = %zu | strlen = %zu\n", name, sizeof name, strlen(name));
+    printf("lit  = %s | sizeof(ptr) = %zu | strlen = %zu\n", lit, sizeof lit, strlen(lit));
+    printf("buf  = %s | sizeof = %zu | strlen = %zu\n", buf, sizeof buf, strlen(buf));
+
+    name[0] = 'e';                       /* OK: our own array */
+    printf("modified: %s\n", name);
+    /* lit[0] = 't';  <- UB: writing to a string literal (crashes on most systems) */
+
+    printf("bytes of \"Hi\": ");
+    const char hi[] = "Hi";
+    for (size_t i = 0; i < sizeof hi; i++) printf("%02X ", (unsigned char)hi[i]);
+    printf("\n");
+    return 0;
+}
+        </c-example>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th></th><th><code>char s[] = "abc";</code></th><th><code>const char *p = "abc";</code></th></tr></thead>
+            <tbody>
+              <tr><td>إيه هو</td><td>array بتاعك (4 bytes) — نسخة</td><td>pointer لنص ثابت</td></tr>
+              <tr><td>مكانه</td><td>الـ stack (لو محلي)</td><td>الـ pointer على الـ stack، والنص في <code>.rodata</code></td></tr>
+              <tr><td>التعديل</td><td>مسموح</td><td>❌ UB (الصفحة read-only)</td></tr>
+              <tr><td><code>sizeof</code></td><td>4 (حجم الـ array كله)</td><td>8 (حجم الـ pointer!)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">دوال string.h — الآمن والخطر <span class="tag">string.h</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الدالة</th><th>الوظيفة</th><th>الأمان</th></tr></thead>
+            <tbody>
+              <tr><td><code>strlen(s)</code></td><td>عدد الحروف قبل <code>'\0'</code></td><td>لو مفيش <code>'\0'</code> هتقرا برا الحدود</td></tr>
+              <tr><td><code>strcpy(dst, src)</code></td><td>نسخ string</td><td>❌ <b>خطر</b>: مبيعرفش حجم <code>dst</code> = buffer overflow</td></tr>
+              <tr><td><code>strcat(dst, src)</code></td><td>إلحاق string</td><td>❌ خطر بنفس الطريقة</td></tr>
+              <tr><td><code>sprintf(buf, fmt, ...)</code></td><td>printf لـ buffer</td><td>❌ خطر</td></tr>
+              <tr><td><code>gets(buf)</code></td><td>قراية سطر</td><td>☠️ <b>اتشالت من C11</b> — مستحيل تستخدمها بأمان</td></tr>
+              <tr><td><code>snprintf(buf, size, fmt, ...)</code></td><td>printf لـ buffer بحد أقصى</td><td>✅ <b>الأفضل</b> للنسخ والدمج — دايمًا بيحط <code>'\0'</code></td></tr>
+              <tr><td><code>strncpy(dst, src, n)</code></td><td>نسخ لحد n</td><td>⚠ <b>مش بيحط <code>'\0'</code></b> لو <code>src</code> أطول من n!</td></tr>
+              <tr><td><code>strcmp(a, b)</code> / <code>strncmp</code></td><td>مقارنة: 0 لو متساويين، &lt;0 أو &gt;0</td><td>✅ (<code>==</code> بيقارن عناوين مش نصوص!)</td></tr>
+              <tr><td><code>strchr</code> / <code>strrchr</code> / <code>strstr</code></td><td>دوّر على حرف / آخر حرف / نص</td><td>✅ بيرجع pointer أو <code>NULL</code></td></tr>
+              <tr><td><code>memcpy(dst, src, n)</code></td><td>نسخ n bytes (أي بيانات)</td><td>✅ لو n صح. (لو المناطق متداخلة استخدم <code>memmove</code>)</td></tr>
+              <tr><td><code>memset(p, v, n)</code></td><td>املا n bytes بقيمة</td><td>✅</td></tr>
+              <tr><td><code>memcmp(a, b, n)</code></td><td>قارن n bytes</td><td>✅ (مش بيقف عند <code>'\0'</code>)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="string_funcs.c">
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    const char *url = "http://update.example.com/gate.php?id=42";
+
+    /* Safe building with snprintf */
+    char path[64];
+    snprintf(path, sizeof path, "%s\\%s", "C:\\Users\\Public", "svc.exe");
+    printf("path   : %s\n", path);
+
+    /* Searching */
+    const char *host = strstr(url, "//");
+    const char *query = strchr(url, '?');
+    printf("host+  : %s\n", host ? host + 2 : "(none)");
+    printf("query  : %s\n", query ? query : "(none)");
+
+    /* Comparing (never with ==) */
+    char typed[] = "admin";
+    printf("strcmp : %d (0 means equal)\n", strcmp(typed, "admin"));
+    printf("prefix : %s\n", strncmp(url, "http", 4) == 0 ? "starts with http" : "no");
+
+    /* The strncpy trap */
+    char small[4];
+    strncpy(small, "ABCDEFG", sizeof small);      /* copies A B C D, NO '\0'! */
+    small[sizeof small - 1] = '\0';               /* always terminate yourself */
+    printf("strncpy: %s\n", small);
+
+    /* Raw memory */
+    unsigned char key[8];
+    memset(key, 0x41, sizeof key);
+    printf("memcmp : %d\n", memcmp(key, "AAAAAAAA", 8));
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الدوال دي غالبًا مش هتلاقيها كـ calls</strong><p>في <code>-O2</code>، gcc وMSVC بيعملوا <b>inline</b> لـ <code>strlen</code> و<code>memcpy</code> و<code>memset</code> بأحجام صغيرة: <code>memcpy</code> لـ 16 byte بتبقى <code>movdqu</code> + <code>movups</code>، و<code>memset</code> بيبقى سلسلة <code>mov qword ptr</code>. ولما تلاقي loop بتعد لحد ما تلاقي byte = 0 → ده <code>strlen</code> مكتوبة يدوي (الـ malware بيعمل كده كتير عشان يقلل الـ imports).</p></div></div>
+
+        <h3 class="sub">الـ Arrays بتتحول لـ Pointers <span class="tag">decay</span></h3>
+        <p>لما تبعت array لدالة، اللي بيتبعت فعليًا هو <b>pointer لأول عنصر</b> — والحجم <b>بيضيع</b>. عشان كده لازم تبعت الطول معاه دايمًا.</p>
+        <c-example file="decay.c" allow-warn>
+#include <stdio.h>
+
+static void show(int arr[], size_t n) {          /* int arr[] == int *arr here */
+    printf("inside : sizeof(arr) = %zu (a pointer!)\n", sizeof(arr));
+    for (size_t i = 0; i < n; i++) printf("%d ", arr[i]);
+    printf("\n");
+}
+
+int main(void) {
+    int data[6] = { 4, 8, 15, 16, 23, 42 };
+    printf("outside: sizeof(data) = %zu\n", sizeof data);
+    show(data, sizeof data / sizeof data[0]);
+    return 0;
+}
+        </c-example>
+        <p>الـ compiler نفسه بيحذرك (<code>-Wsizeof-array-argument</code>) — شغّل وشوف.</p>
+
+        <h3 class="sub">Wide Strings: لغة Windows <span class="tag">wchar_t · UTF-16</span></h3>
+        <p>Windows بيستخدم <b>UTF-16LE</b> داخليًا: كل حرف إنجليزي = <b>2 bytes</b> (<code>'A'</code> = <code>41 00</code>). كل API ليها نسختين: <code>CreateFileA</code> (ANSI) و<code>CreateFileW</code> (Wide). على Linux <code>wchar_t</code> = 4 bytes.</p>
+        <c-example file="wide.c">
+#include <stdio.h>
+#include <wchar.h>
+#include <string.h>
+
+int main(void) {
+    const wchar_t *w = L"cmd";
+    printf("sizeof(wchar_t) here = %zu (Windows: 2)\n", sizeof(wchar_t));
+    printf("wcslen = %zu chars\n", wcslen(w));
+
+    /* What "cmd" looks like as UTF-16LE in a Windows binary */
+    const unsigned char utf16le[] = { 'c', 0, 'm', 0, 'd', 0, 0, 0 };
+    printf("UTF-16LE bytes: ");
+    for (size_t i = 0; i < sizeof utf16le; i++) printf("%02X ", utf16le[i]);
+    printf("\n");
+
+    /* Convert UTF-16LE (ASCII range) back to a normal string */
+    char out[8] = { 0 };
+    for (size_t i = 0; utf16le[i * 2] != 0; i++) out[i] = (char)utf16le[i * 2];
+    printf("decoded: %s (len %zu)\n", out, strlen(out));
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>أداة strings لازم تدور على الاتنين</strong><p><code>strings</code> العادية بتلاقي ASCII بس. على Windows malware استخدم <code>strings -el</code> (Linux) أو <b>FLOSS</b> اللي بيلاقي ASCII وUTF-16LE والـ stack strings والـ strings اللي بتتفك وقت التشغيل. لما تشوف في hex editor حروف بينها أصفار <code>h.t.t.p.:././</code> — دي UTF-16.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 06</h3></div>
+
+          <quiz id="s06-q1" answer="1">
+            <q>قيمة <code>sizeof("ABC")</code>؟</q>
+            <o>3</o>
+            <o>4</o>
+            <o>8</o>
+            <o>1</o>
+            <good>الـ string literal هو array من <code>char</code> فيه 3 حروف + <code>'\0'</code> = 4 bytes.</good>
+            <bad>متنساش الـ NUL terminator.</bad>
+          </quiz>
+
+          <quiz id="s06-q2" answer="3">
+            <q>في الـ disassembly: <code>mov eax, DWORD PTR [rbx+rcx*4]</code>. أرجح تفسير؟</q>
+            <o>قراية <code>char</code> من string</o>
+            <o>ضرب <code>rcx</code> في 4</o>
+            <o>استدعاء دالة</o>
+            <o>قراية عنصر رقم <code>rcx</code> من array عناصره 4 bytes (زي <code>int</code>/<code>DWORD</code>) بيبدأ عند <code>rbx</code></o>
+            <good><code>base + index*scale</code> = <code>arr[i]</code>. الـ scale 4 + الحجم <code>DWORD</code> = عناصر 32-bit.</good>
+            <bad>افتكر صيغة الوصول للـ array: base + index × size.</bad>
+          </quiz>
+
+          <quiz id="s06-q3" answer="0">
+            <q>إيه المشكلة في الكود ده؟<pre-c>
+char buf[8];
+strcpy(buf, user_input);
+            </pre-c></q>
+            <o>لو <code>user_input</code> أطول من 7 حروف، <code>strcpy</code> هتكتب برا <code>buf</code> = <b>stack buffer overflow</b></o>
+            <o><code>strcpy</code> مش موجودة في C</o>
+            <o>مفيش مشكلة</o>
+            <o>لازم <code>buf</code> يبقى <code>const</code></o>
+            <good><code>strcpy</code> مبيعرفش حجم الـ destination. ده أشهر نمط لثغرات الـ stack overflow. الحل: <code>snprintf(buf, sizeof buf, "%s", user_input)</code>.</good>
+            <bad><code>strcpy</code> بتنسخ لحد ما تلاقي <code>'\0'</code> في الـ source… بغض النظر عن حجم الـ destination.</bad>
+          </quiz>
+
+          <quiz id="s06-q4" answer="2">
+            <q><code>if (password == "secret")</code> — إيه اللي بيحصل؟</q>
+            <o>بيقارن النصين حرف بحرف</o>
+            <o>compile error</o>
+            <o>بيقارن <b>عناوين</b> الـ pointers مش المحتوى، فغالبًا دايمًا false</o>
+            <o>بيقارن الأطوال</o>
+            <good><code>==</code> على strings بيقارن عناوين. لازم <code>strcmp(password, "secret") == 0</code>. (والـ compiler بيحذرك.)</good>
+            <bad>الـ strings في C pointers/arrays — <code>==</code> بيقارن إيه بالظبط؟</bad>
+          </quiz>
+
+          <quiz id="s06-q5" answer="1">
+            <q>في hex dump لـ Windows binary لقيت: <code>68 00 74 00 74 00 70 00</code>. ده إيه؟</q>
+            <o>4 أرقام 16-bit عشوائية</o>
+            <o>النص <code>"http"</code> بـ UTF-16LE (wide string)</o>
+            <o>كود x86</o>
+            <o>النص <code>"h.t.t.p."</code> ASCII</o>
+            <good>كل حرف ASCII متبوع بـ <code>00</code> = UTF-16LE. ده الشكل الطبيعي للنصوص اللي بتتبعت لـ APIs الـ <code>W</code>.</good>
+            <bad><code>68</code>=h، <code>74</code>=t، <code>70</code>=p. والأصفار اللي بينهم؟</bad>
+          </quiz>
+
+          <quiz id="s06-q6" answer="3">
+            <q>بعد <code>char d[4]; strncpy(d, "HELLO", 4);</code> إيه حالة <code>d</code>؟</q>
+            <o><code>"HEL"</code> + <code>'\0'</code></o>
+            <o><code>"HELLO"</code> كاملة</o>
+            <o>فاضية</o>
+            <o><code>H E L L</code> من غير <code>'\0'</code> — مش string صالح</o>
+            <good><code>strncpy</code> بتنسخ n bytes بالظبط ولو الـ source أطول مش بتضيف terminator. أي <code>printf("%s", d)</code> بعدها هيقرا برا الحدود.</good>
+            <bad>اقرا التحذير في جدول string.h عن <code>strncpy</code>.</bad>
+          </quiz>
+
+          <challenge id="s06-c1" title="strlen و strcmp بإيدك">
+            <desc>اكتب <code>size_t my_strlen(const char *s)</code> و<code>int my_strcmp(const char *a, const char *b)</code> (ترجع الفرق بين أول حرفين مختلفين كـ <code>unsigned char</code>، أو 0). من غير <code>string.h</code>. الناتج:<br><code>len("kernel32.dll") = 12</code><br><code>cmp(abc, abc) = 0</code><br><code>cmp(abc, abd) &lt; 0</code><br><code>cmp(b, a) &gt; 0</code></desc>
+            <starter>
+#include <stdio.h>
+
+size_t my_strlen(const char *s) {
+    // TODO
+    (void)s;
+    return 0;
+}
+
+int my_strcmp(const char *a, const char *b) {
+    // TODO
+    (void)a; (void)b;
+    return 0;
+}
+
+int main(void) {
+    printf("len(\"kernel32.dll\") = %zu\n", my_strlen("kernel32.dll"));
+    printf("cmp(abc, abc) = %d\n", my_strcmp("abc", "abc"));
+    printf("cmp(abc, abd) %s\n", my_strcmp("abc", "abd") < 0 ? "< 0" : ">= 0");
+    printf("cmp(b, a) %s\n", my_strcmp("b", "a") > 0 ? "> 0" : "<= 0");
+    return 0;
+}
+            </starter>
+            <expected>
+len("kernel32.dll") = 12
+cmp(abc, abc) = 0
+cmp(abc, abd) < 0
+cmp(b, a) > 0
+            </expected>
+            <solution>
+#include <stdio.h>
+
+size_t my_strlen(const char *s) {
+    size_t n = 0;
+    while (s[n] != '\0')
+        n++;
+    return n;
+}
+
+int my_strcmp(const char *a, const char *b) {
+    while (*a && *a == *b) {
+        a++;
+        b++;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+int main(void) {
+    printf("len(\"kernel32.dll\") = %zu\n", my_strlen("kernel32.dll"));
+    printf("cmp(abc, abc) = %d\n", my_strcmp("abc", "abc"));
+    printf("cmp(abc, abd) %s\n", my_strcmp("abc", "abd") < 0 ? "< 0" : ">= 0");
+    printf("cmp(b, a) %s\n", my_strcmp("b", "a") > 0 ? "> 0" : "<= 0");
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s06-c2" title="ROT13 decoder" level="1">
+            <desc>اعكس ROT13 على النص <code>"Pbaarpg gb uggc://p2.yna:8080"</code> (الحروف الإنجليزية بس بتلف 13 خانة، والباقي زي ما هو) واطبع:<br><code>Connect to http://c2.lan:8080</code></desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    char msg[] = "Pbaarpg gb uggc://p2.yna:8080";
+    // TODO: apply ROT13 in place
+
+    printf("%s\n", msg);
+    return 0;
+}
+            </starter>
+            <expected>
+Connect to http://c2.lan:8080
+            </expected>
+            <solution>
+#include <stdio.h>
+
+int main(void) {
+    char msg[] = "Pbaarpg gb uggc://p2.yna:8080";
+    for (char *p = msg; *p; p++) {
+        if (*p >= 'a' && *p <= 'z')
+            *p = (char)('a' + (*p - 'a' + 13) % 26);
+        else if (*p >= 'A' && *p <= 'Z')
+            *p = (char)('A' + (*p - 'A' + 13) % 26);
+    }
+    printf("%s\n", msg);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s06-c3" title="أداة strings مصغّرة" level="3">
+            <desc>عندك buffer binary. اطبع كل تتابع من الحروف <b>القابلة للطباعة</b> (من <code>0x20</code> لـ <code>0x7E</code>) طوله <b>4 أو أكتر</b>، كل واحد في سطر، مسبوق بالـ offset بتاع بدايته بالـ hex (4 خانات). ده بالظبط اللي بتعمله أداة <code>strings</code>. الناتج:<br><code>0004: kernel32.dll</code><br><code>0015: VirtualAlloc</code><br><code>0025: http://evil.test/a</code></desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    const unsigned char blob[] =
+        "\x4D\x5A\x90\x00" "kernel32.dll" "\x00\x90\x01\xFF\x13"
+        "VirtualAlloc" "\x00" "ab" "\x00"
+        "http://evil.test/a" "\x01\x02" "xyz";
+    size_t len = sizeof blob - 1;   /* ignore the literal's own '\0' */
+
+    // TODO: scan blob[0..len) and print printable runs of length >= 4
+    (void)len;
+    return 0;
+}
+            </starter>
+            <expected>
+0004: kernel32.dll
+0015: VirtualAlloc
+0025: http://evil.test/a
+            </expected>
+            <solution>
+#include <stdio.h>
+
+static int printable(unsigned char c) { return c >= 0x20 && c <= 0x7E; }
+
+int main(void) {
+    const unsigned char blob[] =
+        "\x4D\x5A\x90\x00" "kernel32.dll" "\x00\x90\x01\xFF\x13"
+        "VirtualAlloc" "\x00" "ab" "\x00"
+        "http://evil.test/a" "\x01\x02" "xyz";
+    size_t len = sizeof blob - 1;
+
+    size_t start = 0, run = 0;
+    for (size_t i = 0; i <= len; i++) {
+        if (i < len && printable(blob[i])) {
+            if (run == 0) start = i;
+            run++;
+        } else {
+            if (run >= 4) {
+                printf("%04zX: ", start);
+                fwrite(blob + start, 1, run, stdout);
+                printf("\n");
+            }
+            run = 0;
+        }
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

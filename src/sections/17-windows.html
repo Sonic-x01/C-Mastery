@@ -1,0 +1,403 @@
+      <section class="section" id="s17" data-part="الجزء 3 · C تحت المجهر" data-nav="C على Windows للمحلل" data-icon="🪟" data-keywords="windows api winapi dword handle bool lpcwstr ansi wide getlasterror unicode_string ntdll kernel32 kernelbase syscall native api registry run key mutex createtoolhelp32snapshot isdebuggerpresent peb virtualallocex writeprocessmemory createremotethread wininet winhttp persistence injection capabilities">
+        <div class="section-head">
+          <span class="section-index">17</span>
+          <div>
+            <p class="eyebrow">المرحلة السابعة عشر</p>
+            <h2>C على Windows — زي ما بتشوفها في الـ Samples</h2>
+            <p class="lede">أغلب الـ malware اللي هتحلله Windows. الكود بيبقى C عادي، بس مليان <b>أنواع</b> و<b>APIs</b> خاصة بـ Windows. المرحلة دي مش عشان تكتب برامج Windows — دي عشان لما تشوف <code>CreateMutexW</code> أو <code>RegSetValueExW</code> في الـ imports أو الـ decompiler، تفهم فورًا <b>السلوك</b> اللي وراها.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">قاموس أنواع Windows <span class="tag">windows.h</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>النوع</th><th>الحقيقة</th><th>ملاحظة</th></tr></thead>
+            <tbody>
+              <tr><td><code>BYTE</code> / <code>WORD</code> / <code>DWORD</code> / <code>QWORD</code></td><td>8 / 16 / 32 / 64-bit unsigned</td><td><code>DWORD</code> = <code>unsigned long</code> = 32-bit حتى على x64</td></tr>
+              <tr><td><code>BOOL</code></td><td><b><code>int</code></b> (4 bytes)</td><td>⚠ مش <code>bool</code>! أي قيمة ≠ 0 = TRUE. ماتقارنش بـ <code>== TRUE</code></td></tr>
+              <tr><td><code>BOOLEAN</code></td><td><code>unsigned char</code></td><td>مستخدم في Native API</td></tr>
+              <tr><td><code>HANDLE</code></td><td><code>void *</code></td><td>مفتاح معتم لـ kernel object (ملف، process، mutex…)</td></tr>
+              <tr><td><code>HMODULE</code> / <code>HINSTANCE</code></td><td>عنوان تحميل الـ module</td><td>= الـ ImageBase الفعلي</td></tr>
+              <tr><td><code>LPSTR</code> / <code>LPCSTR</code></td><td><code>char *</code> / <code>const char *</code></td><td>ANSI</td></tr>
+              <tr><td><code>LPWSTR</code> / <code>LPCWSTR</code> / <code>PWSTR</code></td><td><code>wchar_t *</code> (UTF-16)</td><td>Wide</td></tr>
+              <tr><td><code>LPVOID</code> / <code>PVOID</code></td><td><code>void *</code></td><td></td></tr>
+              <tr><td><code>SIZE_T</code> / <code>ULONG_PTR</code> / <code>DWORD_PTR</code></td><td>unsigned بحجم pointer</td><td>64-bit على x64</td></tr>
+              <tr><td><code>NTSTATUS</code></td><td><code>LONG</code></td><td>≥ 0 نجاح. <code>0xC0000005</code> = Access Violation</td></tr>
+              <tr><td><code>HRESULT</code></td><td><code>LONG</code></td><td>COM: <code>S_OK = 0</code>، سالب = فشل</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout tip"><span class="ci">🔤</span><div><strong>الـ Hungarian Notation</strong><p><code>lp</code> = long pointer، <code>sz</code> = zero-terminated string، <code>dw</code> = DWORD، <code>h</code> = handle، <code>cb</code> = count of bytes، <code>cch</code> = count of characters. فـ <code>lpszFileName</code> = pointer لـ string اسم ملف، و<code>cbData</code> = حجم بالـ bytes. أسماء الـ parameters في MSDN بتقولك نوعها.</p></div></div>
+
+        <h3 class="sub">A و W: كل API ليها نسختين <span class="tag">ANSI vs Unicode</span></h3>
+        <p><code>CreateFile</code> مجرد macro: بيبقى <code>CreateFileW</code> لو <code>UNICODE</code> متعرّف، أو <code>CreateFileA</code>. الـ <b>A</b> بتحول النص لـ UTF-16 وتنادي الـ <b>W</b>. في الـ imports هتشوف الاسم الحقيقي. والـ Native API (ntdll) بتستخدم struct خاص للنصوص:</p>
+        <c-example file="unicode_string.c">
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+/* Same layout as the Windows UNICODE_STRING on x64 */
+typedef struct {
+    uint16_t  Length;          /* in BYTES, without the terminator */
+    uint16_t  MaximumLength;   /* buffer size in BYTES             */
+    uint16_t *Buffer;          /* UTF-16LE, NOT guaranteed to end with 0 */
+} UNICODE_STRING;
+
+static void init_us(UNICODE_STRING *us, uint16_t *buf, size_t cap_chars, const char *ascii) {
+    size_t n = strlen(ascii);
+    if (n >= cap_chars) n = cap_chars - 1;
+    for (size_t i = 0; i < n; i++) buf[i] = (uint16_t)(unsigned char)ascii[i];
+    buf[n] = 0;
+    us->Buffer = buf;
+    us->Length = (uint16_t)(n * sizeof(uint16_t));
+    us->MaximumLength = (uint16_t)(cap_chars * sizeof(uint16_t));
+}
+
+int main(void) {
+    uint16_t storage[32];
+    UNICODE_STRING us;
+    init_us(&us, storage, 32, "ntdll.dll");
+
+    printf("Length=%u bytes (%u chars), MaximumLength=%u\n",
+           us.Length, us.Length / 2, us.MaximumLength);
+    printf("as text: ");
+    for (size_t i = 0; i < us.Length / sizeof(uint16_t); i++)   /* use Length, not a 0 search */
+        putchar((char)us.Buffer[i]);
+    printf("\nsizeof(UNICODE_STRING) = %zu (2 + 2 + 4 padding + 8)\n", sizeof(UNICODE_STRING));
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>UNICODE_STRING في الـ PEB</strong><p>أسماء الـ DLLs في <code>PEB-&gt;Ldr</code> متخزنة كـ <code>UNICODE_STRING</code> (<code>BaseDllName</code>/<code>FullDllName</code>). لما تشوف shellcode بيقرا <code>word ptr [rax+58h]</code> (Length) وبعدها <code>qword ptr [rax+60h]</code> (Buffer) — ده بيقرا اسم الـ DLL من الـ <code>LDR_DATA_TABLE_ENTRY</code> عشان يلاقي <code>kernel32.dll</code>.</p></div></div>
+
+        <h3 class="sub">طبقات الـ API: من كودك لحد الـ Kernel <span class="tag">layers</span></h3>
+        <div class="pipeline">
+          <div class="stage"><b>كودك</b><code>CreateFileW()</code><small>import من kernel32.dll</small></div>
+          <div class="arrow">→</div>
+          <div class="stage"><b>kernel32 / kernelbase</b><code>CreateFileW</code><small>تحقق من الـ args وتحويلها</small></div>
+          <div class="arrow">→</div>
+          <div class="stage"><b>ntdll.dll</b><code>NtCreateFile</code><small>Native API — stub صغير</small></div>
+          <div class="arrow">→</div>
+          <div class="stage"><b>syscall</b><code>mov eax, SSN; syscall</code><small>دخول الـ kernel (ntoskrnl)</small></div>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>ليه الـ malware بينزل لتحت؟</strong><p>أدوات الحماية (EDR) بتعمل <b>hooks</b> على دوال في <code>ntdll</code>/<code>kernel32</code> عشان تراقب. فالـ malware المتقدم بينادي الـ <code>Nt*</code> مباشرة، أو بيعمل <b>direct/indirect syscalls</b> بنفسه. كمحلل: لو لقيت <code>syscall</code> instruction في كود الـ sample نفسه (مش جوه ntdll) = إشارة قوية على تقنية تهرّب، ولازم تعرف رقم الـ syscall (SSN) بيقابل أنهي دالة.</p></div></div>
+
+        <h3 class="sub">نمط معالجة الأخطاء <span class="tag">GetLastError</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الـ API بترجع</th><th>الفشل يعني</th><th>أمثلة</th></tr></thead>
+            <tbody>
+              <tr><td><code>BOOL</code></td><td><code>FALSE</code> (0) ← اسأل <code>GetLastError()</code></td><td><code>ReadFile</code>, <code>WriteFile</code>, <code>CloseHandle</code></td></tr>
+              <tr><td><code>HANDLE</code></td><td><code>NULL</code></td><td><code>CreateMutexW</code>, <code>OpenProcess</code>, <code>CreateThread</code></td></tr>
+              <tr><td><code>HANDLE</code></td><td><code>INVALID_HANDLE_VALUE</code> (-1)</td><td><code>CreateFileW</code>, <code>CreateToolhelp32Snapshot</code>, <code>FindFirstFileW</code></td></tr>
+              <tr><td><code>LSTATUS</code></td><td>≠ <code>ERROR_SUCCESS</code> (0) — الـ error code نفسه</td><td><code>RegOpenKeyExW</code>, <code>RegQueryValueExW</code></td></tr>
+              <tr><td><code>NTSTATUS</code></td><td>سالب (<code>0xC…</code>)</td><td>كل <code>Nt*</code>/<code>Zw*</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">أمثلة Windows حقيقية <span class="tag">read & recognise</span></h3>
+        <p>الأمثلة دي كود Windows عادي وموثق (بتتعمل compile على Windows بـ MinGW أو MSVC). مش بتشتغل في الصفحة لأن التشغيل هنا Linux — الهدف إنك تعرف <b>شكلها</b>.</p>
+        <c-example file="single_instance.c" win norun>
+#include <windows.h>
+#include <stdio.h>
+
+int main(void) {
+    /* Named mutex = "only one copy may run". The name is a classic IOC! */
+    HANDLE mtx = CreateMutexW(NULL, FALSE, L"Global\\MyApp_SingleInstance_7F3A");
+    if (mtx == NULL) return 1;
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        puts("another instance is already running -> exit");
+        CloseHandle(mtx);
+        return 0;
+    }
+    puts("first instance, doing work...");
+    Sleep(1000);
+    CloseHandle(mtx);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ Mutex كـ IOC و"vaccine"</strong><p>أغلب عائلات الـ malware بتعمل mutex باسم ثابت عشان متشتغلش مرتين. الاسم ده بيتنشر في الـ threat reports كـ <b>IOC</b>، وأحيانًا تقدر "تطعّم" الأجهزة بإنك تعمل الـ mutex بنفسك فالـ malware يفتكر إنه شغال ويخرج.</p></div></div>
+
+        <c-example file="enum_processes.c" win norun>
+#include <windows.h>
+#include <tlhelp32.h>
+#include <stdio.h>
+
+int main(void) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return 1;
+
+    PROCESSENTRY32W pe;
+    pe.dwSize = sizeof pe;                       /* MUST be set before the first call */
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            wprintf(L"%6lu  %ls\n", pe.th32ProcessID, pe.szExeFile);
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    return 0;
+}
+        </c-example>
+        <p>الـ malware بيستخدم النمط ده عشان: يدوّر على process يحقن فيه (<code>explorer.exe</code>)، أو يدوّر على أدوات تحليل (<code>x64dbg.exe</code>، <code>wireshark.exe</code>، <code>procmon.exe</code>) ويقفل لو لقاها، أو يدوّر على antivirus. لما تشوف loop بيقارن <code>szExeFile</code> بقايمة أسماء — اطبع القايمة دي، دي معلومة مهمة في الـ report.</p>
+
+        <c-example file="read_registry.c" win norun>
+#include <windows.h>
+#include <stdio.h>
+
+int main(void) {
+    HKEY key;
+    LSTATUS rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                               L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                               0, KEY_READ, &key);
+    if (rc != ERROR_SUCCESS) return 1;
+
+    wchar_t name[128];
+    DWORD size = sizeof name, type = 0;          /* size in BYTES */
+    rc = RegQueryValueExW(key, L"ProductName", NULL, &type, (LPBYTE)name, &size);
+    if (rc == ERROR_SUCCESS && type == REG_SZ)
+        wprintf(L"Windows: %ls\n", name);
+    RegCloseKey(key);
+    return 0;
+}
+        </c-example>
+
+        <c-example file="debugger_check.c" win norun>
+#include <windows.h>
+#include <stdio.h>
+
+int main(void) {
+    /* 1) The documented API */
+    if (IsDebuggerPresent())
+        puts("IsDebuggerPresent: yes");
+
+    /* 2) What that API actually reads: PEB->BeingDebugged (offset 2) */
+    BYTE *peb = (BYTE *)__readgsqword(0x60);     /* x64: gs:[0x60] = PEB */
+    printf("PEB->BeingDebugged = %u\n", peb[2]);
+
+    /* 3) Another process-level check */
+    BOOL remote = FALSE;
+    CheckRemoteDebuggerPresent(GetCurrentProcess(), &remote);
+    printf("CheckRemoteDebuggerPresent = %d\n", remote);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>إزاي المحلل يتعامل مع الـ anti-debug</strong><p>(1) اتعرف عليه: <code>IsDebuggerPresent</code>، <code>gs:[60h]</code> + <code>[rax+2]</code>، <code>NtQueryInformationProcess</code> بـ <code>ProcessDebugPort</code> (7)، timing checks بـ <code>rdtsc</code>/<code>GetTickCount</code>، البحث عن <code>0xCC</code>. (2) عدّيه: plugin زي <b>ScyllaHide</b> في x64dbg، أو عدّل نتيجة الـ check (اقلب الـ <code>ZF</code> أو غيّر <code>eax</code>)، أو patch الـ <code>jz</code> لـ <code>jmp</code>. (3) وثّقه في الـ report كـ capability.</p></div></div>
+
+        <h3 class="sub">خريطة الـ APIs ← السلوك <span class="tag">behaviour map</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>السلوك</th><th>APIs مميزة</th></tr></thead>
+            <tbody>
+              <tr><td><b>Persistence</b> (يشتغل مع الـ boot)</td><td><code>RegSetValueExW</code> على <code>...\CurrentVersion\Run</code> · <code>CreateServiceW</code> · Scheduled tasks (COM <code>ITaskService</code>) · نسخ لـ Startup folder</td></tr>
+              <tr><td><b>Process injection</b></td><td><code>OpenProcess</code> + <code>VirtualAllocEx</code> + <code>WriteProcessMemory</code> + <code>CreateRemoteThread</code> / <code>QueueUserAPC</code> / <code>SetThreadContext</code> + <code>ResumeThread</code> · <code>NtMapViewOfSection</code></td></tr>
+              <tr><td><b>Unpacking / in-memory code</b></td><td><code>VirtualAlloc</code> / <code>VirtualProtect</code> (RWX) · <code>RtlDecompressBuffer</code></td></tr>
+              <tr><td><b>Network / C2</b></td><td><code>InternetOpenW</code> + <code>InternetOpenUrlW</code> / <code>HttpSendRequestW</code> (WinINet) · <code>WinHttp*</code> · <code>WSAStartup</code> + <code>connect</code> + <code>send</code>/<code>recv</code> · <code>URLDownloadToFileW</code></td></tr>
+              <tr><td><b>Discovery</b></td><td><code>CreateToolhelp32Snapshot</code> · <code>GetComputerNameW</code> · <code>GetUserNameW</code> · <code>GetAdaptersInfo</code> · <code>NetShareEnum</code></td></tr>
+              <tr><td><b>File encryption (ransomware)</b></td><td><code>FindFirstFileW</code>/<code>FindNextFileW</code> + <code>CryptEncrypt</code>/<code>BCryptEncrypt</code> + <code>MoveFileW</code> · <code>vssadmin</code>/<code>DeleteShadowCopies</code> strings</td></tr>
+              <tr><td><b>Credential access</b></td><td><code>OpenProcess</code> على <code>lsass.exe</code> + <code>MiniDumpWriteDump</code> · <code>CredEnumerateW</code> · قراية ملفات المتصفحات</td></tr>
+              <tr><td><b>Keylogging / spying</b></td><td><code>SetWindowsHookExW(WH_KEYBOARD_LL)</code> · <code>GetAsyncKeyState</code> · <code>BitBlt</code> (screenshots)</td></tr>
+              <tr><td><b>Anti-analysis</b></td><td><code>IsDebuggerPresent</code> · <code>CheckRemoteDebuggerPresent</code> · <code>NtQueryInformationProcess</code> · <code>GetTickCount</code>/<code>QueryPerformanceCounter</code> · <code>Sleep</code> طويل</td></tr>
+              <tr><td><b>Execution</b></td><td><code>CreateProcessW</code> · <code>ShellExecuteExW</code> · <code>WinExec</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout info"><span class="ci">🗺️</span><div><strong>اربطها بـ MITRE ATT&amp;CK</strong><p>كل سلوك من دول ليه technique ID (مثلًا Registry Run Keys = <code>T1547.001</code>، Process Injection = <code>T1055</code>). الـ reports الاحترافية بتوثق الـ capabilities بالـ IDs دي، وأداة <b>capa</b> بتطلعها أوتوماتيك.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 17</h3></div>
+
+          <quiz id="s17-q1" answer="1">
+            <q>إيه حجم <code>BOOL</code> في Windows، وإيه الخطر في <code>if (ReadFile(...) == TRUE)</code>؟</q>
+            <o>1 byte، ومفيش خطر</o>
+            <o>4 bytes (<code>int</code>)، والـ API ممكن ترجع أي قيمة ≠ 0 للنجاح، فالمقارنة بـ <code>TRUE</code> (1) ممكن تفشل غلط</o>
+            <o>8 bytes</o>
+            <o>نفس <code>bool</code> في C99</o>
+            <good><code>BOOL</code> = <code>int</code>. اكتب <code>if (ReadFile(...))</code> أو <code>if (!ReadFile(...))</code>.</good>
+            <bad><code>BOOL</code> متعرّف إزاي في <code>windef.h</code>؟</bad>
+          </quiz>
+
+          <quiz id="s17-q2" answer="3">
+            <q>في الـ imports لقيت <code>OpenProcess</code>، <code>VirtualAllocEx</code>، <code>WriteProcessMemory</code>، <code>CreateRemoteThread</code>. السلوك الأرجح؟</q>
+            <o>Persistence</o>
+            <o>Ransomware</o>
+            <o>Keylogging</o>
+            <o>Process injection: كتابة كود في process تاني وتشغيله هناك</o>
+            <good>دي المجموعة الكلاسيكية للـ remote thread injection (MITRE T1055). الخطوة الجاية: اعرف إيه اللي بيتكتب (breakpoint على <code>WriteProcessMemory</code> واقرا الـ buffer).</good>
+            <bad>APIs بتشتغل على process <b>تاني</b> (الـ <code>Ex</code> والـ <code>Remote</code>).</bad>
+          </quiz>
+
+          <quiz id="s17-q3" answer="0">
+            <q><code>UNICODE_STRING</code> فيه <code>Length = 18</code>. النص فيه كام حرف؟</q>
+            <o>9</o>
+            <o>18</o>
+            <o>8</o>
+            <o>36</o>
+            <good><code>Length</code> بالـ <b>bytes</b>، وكل حرف UTF-16 = 2 bytes، فـ 9 حروف (زي <code>ntdll.dll</code>). خطأ "bytes vs chars" ده مصدر bugs كتير.</good>
+            <bad>الـ Length بوحدة إيه؟</bad>
+          </quiz>
+
+          <quiz id="s17-q4" answer="2">
+            <q>في الـ sample لقيت <code>mov rax, gs:[60h]</code> ثم <code>movzx eax, byte ptr [rax+2]</code> ثم <code>test eax, eax</code> + <code>jnz exit</code>. ده إيه؟</q>
+            <o>قراية ملف</o>
+            <o>API hashing</o>
+            <o>Anti-debugging: قراية <code>PEB-&gt;BeingDebugged</code> يدويًا (نفس اللي <code>IsDebuggerPresent</code> بتعمله) والخروج لو فيه debugger</o>
+            <o>إنشاء thread</o>
+            <good><code>gs:[60h]</code> = الـ PEB على x64، والـ offset 2 = <code>BeingDebugged</code>. عدّيه بتغيير الـ byte ده لـ 0 أو بـ ScyllaHide.</good>
+            <bad>إيه اللي موجود عند <code>gs:[60h]</code> على Windows x64؟</bad>
+          </quiz>
+
+          <quiz id="s17-q5" answer="1">
+            <q>Sample بيعمل <code>CreateMutexW(..., L"Global\\xK9_qq21")</code> وبعدها <code>if (GetLastError() == 183) ExitProcess(0);</code>. القيمة 183 = ؟ وده بيفيدك بإيه؟</q>
+            <o><code>ERROR_ACCESS_DENIED</code>؛ مفيش فايدة</o>
+            <o><code>ERROR_ALREADY_EXISTS</code>؛ اسم الـ mutex IOC ممكن تستخدمه للـ detection أو كـ "vaccine"</o>
+            <o><code>ERROR_FILE_NOT_FOUND</code></o>
+            <o>نجاح</o>
+            <good>183 = <code>ERROR_ALREADY_EXISTS</code>. الـ mutex ده بيضمن نسخة واحدة — واسمه بصمة ممتازة للعيلة.</good>
+            <bad>ارجع لمثال <code>single_instance.c</code>.</bad>
+          </quiz>
+
+          <challenge id="s17-c1" title="ASCII ← UTF-16LE والعكس" level="2">
+            <desc>اكتب <code>size_t to_utf16le(const char *s, uint8_t *out, size_t out_size)</code> بتحول نص ASCII لـ bytes UTF-16LE (كل حرف = byte الحرف + <code>00</code>) وبترجع عدد الـ bytes، ودالة عكسية <code>from_utf16le</code>. حوّل <code>"cmd.exe"</code> واطبع الـ bytes، وبعدين رجّعها:<br><code>14 bytes: 63 00 6D 00 64 00 2E 00 65 00 78 00 65 00</code><br><code>back: cmd.exe</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+size_t to_utf16le(const char *s, uint8_t *out, size_t out_size) {
+    // TODO
+    (void)s; (void)out; (void)out_size;
+    return 0;
+}
+
+void from_utf16le(const uint8_t *in, size_t len, char *out) {
+    // TODO
+    (void)in; (void)len;
+    out[0] = '\0';
+}
+
+int main(void) {
+    uint8_t wide[64];
+    size_t n = to_utf16le("cmd.exe", wide, sizeof wide);
+    printf("%zu bytes:", n);
+    for (size_t i = 0; i < n; i++) printf(" %02X", wide[i]);
+    char back[32];
+    from_utf16le(wide, n, back);
+    printf("\nback: %s\n", back);
+    return 0;
+}
+            </starter>
+            <expected>
+14 bytes: 63 00 6D 00 64 00 2E 00 65 00 78 00 65 00
+back: cmd.exe
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+size_t to_utf16le(const char *s, uint8_t *out, size_t out_size) {
+    size_t n = 0;
+    for (; *s && n + 2 <= out_size; s++) {
+        out[n++] = (uint8_t)*s;   /* low byte  */
+        out[n++] = 0x00;          /* high byte (ASCII range) */
+    }
+    return n;
+}
+
+void from_utf16le(const uint8_t *in, size_t len, char *out) {
+    size_t j = 0;
+    for (size_t i = 0; i + 1 < len; i += 2)
+        out[j++] = (char)in[i];
+    out[j] = '\0';
+}
+
+int main(void) {
+    uint8_t wide[64];
+    size_t n = to_utf16le("cmd.exe", wide, sizeof wide);
+    printf("%zu bytes:", n);
+    for (size_t i = 0; i < n; i++) printf(" %02X", wide[i]);
+    char back[32];
+    from_utf16le(wide, n, back);
+    printf("\nback: %s\n", back);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s17-c2" title="mini-capa: من الـ imports للسلوك" level="3">
+            <desc>عندك قايمة imports لـ sample، وجدول قواعد: كل capability بتتحقق لو <b>كل</b> الـ APIs بتاعتها موجودة. اطبع الـ capabilities المتحققة بالترتيب:<br><code>imports: 9</code><br><code>[+] process injection</code><br><code>[+] persistence via Run key</code><br><code>[+] anti-debugging</code></desc>
+            <starter>
+#include <stdio.h>
+#include <string.h>
+
+static const char *imports[] = {
+    "OpenProcess", "VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread",
+    "RegOpenKeyExW", "RegSetValueExW", "IsDebuggerPresent", "Sleep", "ExitProcess",
+};
+
+typedef struct { const char *name; const char *apis[4]; } Rule;   /* NULL-terminated list */
+
+static const Rule rules[] = {
+    { "process injection",        { "OpenProcess", "VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread" } },
+    { "network download",         { "InternetOpenW", "InternetOpenUrlW", NULL } },
+    { "persistence via Run key",  { "RegOpenKeyExW", "RegSetValueExW", NULL } },
+    { "anti-debugging",           { "IsDebuggerPresent", NULL } },
+};
+
+int has_import(const char *api) {
+    // TODO
+    (void)api;
+    return 0;
+}
+
+int main(void) {
+    size_t n_imp = sizeof imports / sizeof imports[0];
+    printf("imports: %zu\n", n_imp);
+    // TODO: evaluate each rule
+    (void)rules;
+    return 0;
+}
+            </starter>
+            <expected>
+imports: 9
+[+] process injection
+[+] persistence via Run key
+[+] anti-debugging
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <string.h>
+
+static const char *imports[] = {
+    "OpenProcess", "VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread",
+    "RegOpenKeyExW", "RegSetValueExW", "IsDebuggerPresent", "Sleep", "ExitProcess",
+};
+
+typedef struct { const char *name; const char *apis[4]; } Rule;   /* NULL-terminated list */
+
+static const Rule rules[] = {
+    { "process injection",        { "OpenProcess", "VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread" } },
+    { "network download",         { "InternetOpenW", "InternetOpenUrlW", NULL } },
+    { "persistence via Run key",  { "RegOpenKeyExW", "RegSetValueExW", NULL } },
+    { "anti-debugging",           { "IsDebuggerPresent", NULL } },
+};
+
+int has_import(const char *api) {
+    for (size_t i = 0; i < sizeof imports / sizeof imports[0]; i++)
+        if (strcmp(imports[i], api) == 0) return 1;
+    return 0;
+}
+
+int main(void) {
+    size_t n_imp = sizeof imports / sizeof imports[0];
+    printf("imports: %zu\n", n_imp);
+    for (size_t r = 0; r < sizeof rules / sizeof rules[0]; r++) {
+        int all = 1;
+        for (size_t k = 0; k < 4 && rules[r].apis[k]; k++)
+            if (!has_import(rules[r].apis[k])) { all = 0; break; }
+        if (all) printf("[+] %s\n", rules[r].name);
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

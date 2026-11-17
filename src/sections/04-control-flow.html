@@ -1,0 +1,461 @@
+      <section class="section" id="s04" data-part="الجزء 1 · الأساسيات" data-nav="التحكم في التدفق" data-icon="🔀" data-keywords="if else switch case jump table while do for break continue goto loop control flow cmp jmp jle jg conditional branch">
+        <div class="section-head">
+          <span class="section-index">04</span>
+          <div>
+            <p class="eyebrow">المرحلة الرابعة</p>
+            <h2>الشروط والحلقات — وشكلها في الـ Disassembler</h2>
+            <p class="lede">في الـ Assembly مفيش <code>if</code> ولا <code>for</code> ولا <code>while</code>. فيه بس <b>مقارنة</b> (<code>cmp</code>/<code>test</code>) و<b>قفزة</b> (<code>jmp</code>/<code>jcc</code>). كل الـ control flow اللي هتكتبه بيتحوّل لكده — وفي IDA/Ghidra هتشوفه كـ <b>graph</b> من blocks وأسهم. المرحلة دي بتعلمك تقرا الـ graph ده.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">if / else if / else <span class="tag">branches</span></h3>
+        <c-example file="if_else.c">
+#include <stdio.h>
+
+static const char *classify(int score) {
+    if (score < 0 || score > 100)
+        return "invalid";
+    else if (score >= 85)
+        return "malicious";
+    else if (score >= 50)
+        return "suspicious";
+    else
+        return "clean";
+}
+
+int main(void) {
+    int scores[] = { 97, 63, 12, -5 };
+    for (int i = 0; i < 4; i++)
+        printf("score %3d -> %s\n", scores[i], classify(scores[i]));
+
+    int x = 0;
+    if (x)            /* any non-zero value is "true" */
+        puts("x is true");
+    else
+        puts("x is false (0)");
+    return 0;
+}
+        </c-example>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>الـ true في C = أي رقم غير الصفر</strong><p>مفيش boolean حقيقي قبل C99 (<code>_Bool</code> / <code>bool</code> من <code>&lt;stdbool.h&gt;</code>). الشرط بيتحقق لو القيمة ≠ 0. وغلطة <code>if (x = 5)</code> (تخصيص بدل مقارنة) دايمًا true — <code>-Wall</code> بيحذرك منها.</p></div></div>
+
+        <h3 class="sub">الـ if في الـ Assembly: الشرط بيتعكس <span class="tag">-O0</span></h3>
+        <p>الـ compiler بيكتب الكود بحيث <b>يقفز فوق</b> جسم الـ if لو الشرط <b>اتكسر</b>. فـ <code>if (age &gt;= 18)</code> بيتحول لـ "لو <code>age &lt;= 17</code> اقفز للـ else". ده ناتج gcc الحقيقي:</p>
+        <div class="side-by-side">
+          <c-example file="check_age.c" norun>
+int check_age(int age) {
+    if (age >= 18)
+        return 1;
+    return 0;
+}
+          </c-example>
+          <asm-block file="check_age.s (gcc -O0)">
+check_age:
+        push    rbp
+        mov     rbp, rsp
+        mov     DWORD PTR [rbp-4], edi   ; age -> local
+        cmp     DWORD PTR [rbp-4], 17    ; compare age with 17
+        jle     .L2                      ; age <= 17 ? skip the "then"
+        mov     eax, 1                   ; then: return 1
+        jmp     .L3
+.L2:
+        mov     eax, 0                   ; else: return 0
+.L3:
+        pop     rbp
+        ret
+          </asm-block>
+        </div>
+        <p>لاحظ: <code>&gt;= 18</code> اتكتبت <code>cmp 17</code> + <code>jle</code> (الشرط المعكوس). وفي <code>-O2</code> الـ branch كله بيختفي: <code>cmp edi, 17</code> ← <code>setg al</code> (حط 1 لو أكبر). <b>جرّب زرار ASM على أي مثال وبدّل الـ optimization.</b></p>
+
+        <h3 class="sub">جدول الـ Conditional Jumps <span class="tag">jcc</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الشرط في C</th><th>signed</th><th>unsigned</th><th>الـ flags</th></tr></thead>
+            <tbody>
+              <tr><td><code>a == b</code></td><td colspan="2"><code>je</code> / <code>jz</code></td><td>ZF=1</td></tr>
+              <tr><td><code>a != b</code></td><td colspan="2"><code>jne</code> / <code>jnz</code></td><td>ZF=0</td></tr>
+              <tr><td><code>a &lt; b</code></td><td><code>jl</code></td><td><code>jb</code></td><td>SF≠OF / CF=1</td></tr>
+              <tr><td><code>a &lt;= b</code></td><td><code>jle</code></td><td><code>jbe</code></td><td>—</td></tr>
+              <tr><td><code>a &gt; b</code></td><td><code>jg</code></td><td><code>ja</code></td><td>—</td></tr>
+              <tr><td><code>a &gt;= b</code></td><td><code>jge</code></td><td><code>jae</code></td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>حفظ سريع: <b>L</b>ess/<b>G</b>reater للـ signed، <b>B</b>elow/<b>A</b>bove للـ unsigned. و<code>test eax, eax</code> + <code>jz</code> = <code>if (x == 0)</code>.</p>
+
+        <h3 class="sub">switch و Jump Tables <span class="tag">switch</span></h3>
+        <c-example file="switch.c">
+#include <stdio.h>
+
+static const char *cmd_name(int cmd) {
+    switch (cmd) {
+        case 1:  return "BEACON";
+        case 2:  return "SHELL";
+        case 3:  return "UPLOAD";
+        case 4:  return "DOWNLOAD";
+        case 5:  return "SLEEP";
+        default: return "UNKNOWN";
+    }
+}
+
+int main(void) {
+    for (int c = 0; c <= 6; c++)
+        printf("cmd %d -> %s\n", c, cmd_name(c));
+
+    /* Fall-through: no break means execution continues into the next case */
+    int level = 2;
+    switch (level) {
+        case 3: puts("  enable keylog");      /* fall through */
+        case 2: puts("  enable screenshots"); /* fall through */
+        case 1: puts("  enable beacon");
+                break;
+        default: puts("  nothing");
+    }
+    return 0;
+}
+        </c-example>
+        <p>لما الـ cases تبقى أرقام متقاربة (dense)، الـ compiler بيعمل <b>Jump Table</b>: array من العناوين، والـ case رقم n بيقفز للعنوان رقم n — مقارنة واحدة بدل سلسلة طويلة. ده ناتج gcc -O2 حقيقي:</p>
+        <div class="side-by-side">
+          <c-example file="dispatch.c" norun>
+void f1(void); void f2(void); void f3(void);
+void f4(void); void f5(void);
+
+void run(int cmd) {
+    switch (cmd) {
+        case 1: f1(); break;
+        case 2: f2(); break;
+        case 3: f3(); break;
+        case 4: f4(); break;
+        case 5: f5(); break;
+    }
+}
+          </c-example>
+          <asm-block file="dispatch.s (gcc -O2)">
+run:
+        cmp     edi, 5                   ; UNSIGNED compare: also rejects negatives
+        ja      .L1                      ; cmd > 5 (or < 0) -> default
+        mov     edi, edi                 ; zero-extend index to 64-bit
+        jmp     [QWORD PTR .L4[0+rdi*8]] ; jump through the table
+.L4:                                     ; the jump table (in .rodata)
+        .quad   .L1                      ; case 0 -> default
+        .quad   .L8                      ; case 1
+        .quad   .L7                      ; case 2
+        .quad   .L6                      ; case 3
+        .quad   .L5                      ; case 4
+        .quad   .L3                      ; case 5
+.L3:    jmp     f5                       ; tail calls
+.L8:    jmp     f1
+.L7:    jmp     f2
+.L6:    jmp     f3
+.L5:    jmp     f4
+.L1:    ret
+          </asm-block>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ Jump Table = الـ Command Dispatcher في الـ RATs</strong><p>الـ backdoors بتستقبل رقم أمر من الـ C2 وتعمل <code>switch</code> عليه. لما تلاقي <code>cmp reg, N</code> + <code>ja</code> + <code>jmp [table+reg*8]</code> — لقيت قلب الـ malware: كل entry في الجدول = قدرة (capability). المحلل بيمشي على كل case ويوثّق هي بتعمل إيه. Ghidra وIDA غالبًا بيتعرفوا على الجدول وبيرجعوه <code>switch</code>.</p></div></div>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>أشكال تانية للـ switch</strong><p>لو الـ cases بترجع قيم بس، gcc ممكن يحولها لـ <b>lookup table للبيانات</b> مش للعناوين (هتشوف array اسمه <code>CSWTCH</code>). ولو الـ cases متفرقة (1، 100، 5000) بيعمل سلسلة مقارنات أو <b>binary search</b> من الـ <code>cmp</code>.</p></div></div>
+
+        <h3 class="sub">الحلقات: while / do-while / for <span class="tag">loops</span></h3>
+        <c-example file="loops.c">
+#include <stdio.h>
+
+int main(void) {
+    /* while: test first, may run 0 times */
+    int n = 3;
+    while (n > 0) {
+        printf("while n=%d\n", n);
+        n--;
+    }
+
+    /* do-while: body first, runs at least once */
+    int tries = 0;
+    do {
+        tries++;
+        printf("attempt %d\n", tries);
+    } while (tries < 2);
+
+    /* for: init; condition; step */
+    for (int i = 0; i < 10; i += 3)
+        printf("for i=%d\n", i);
+
+    /* break / continue */
+    for (int i = 1; i <= 10; i++) {
+        if (i % 2 == 0) continue;   /* skip evens */
+        if (i > 7) break;           /* stop early */
+        printf("odd %d\n", i);
+    }
+
+    /* nested loops with a flag */
+    int found = 0;
+    for (int r = 0; r < 3 && !found; r++)
+        for (int c = 0; c < 3; c++)
+            if (r * 3 + c == 7) { printf("found at r=%d c=%d\n", r, c); found = 1; break; }
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">شكل الـ loop في الـ Assembly <span class="tag">back-edge</span></h3>
+        <div class="side-by-side">
+          <c-example file="sum_to.c" norun>
+int sum_to(int n) {
+    int total = 0;
+    for (int i = 1; i <= n; i++)
+        total += i;
+    return total;
+}
+          </c-example>
+          <asm-block file="sum_to.s (gcc -O0)">
+sum_to:
+        push    rbp
+        mov     rbp, rsp
+        mov     DWORD PTR [rbp-20], edi  ; n
+        mov     DWORD PTR [rbp-4], 0     ; total = 0
+        mov     DWORD PTR [rbp-8], 1     ; i = 1
+        jmp     .L5                      ; jump to the condition first
+.L6:                                     ; loop body
+        mov     eax, DWORD PTR [rbp-8]
+        add     DWORD PTR [rbp-4], eax   ; total += i
+        add     DWORD PTR [rbp-8], 1     ; i++
+.L5:                                     ; condition
+        mov     eax, DWORD PTR [rbp-8]
+        cmp     eax, DWORD PTR [rbp-20]
+        jle     .L6                      ; i <= n ? back to body (BACK-EDGE)
+        mov     eax, DWORD PTR [rbp-4]   ; return total
+        pop     rbp
+        ret
+          </asm-block>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>إزاي تعرف الـ loop في أي disassembly</strong><p>دوّر على <b>قفزة لورا</b> (back-edge): jump لعنوان أصغر من عنوانها. في IDA graph بيظهر كسهم راجع لفوق. بعدها حدد: (1) الـ <b>counter</b> (المتغير اللي بيزيد بـ <code>add ..., 1</code>)، (2) <b>شرط الخروج</b> (الـ <code>cmp</code> قبل الـ jump)، (3) <b>الجسم</b>. في <code>-O2</code> الـ compiler ممكن يعمل <b>loop unrolling</b> (يكرر الجسم مرتين أو أكتر في اللفة الواحدة) أو يستبدل الـ loop بمعادلة — جرّب ASM على المثال وشوف.</p></div></div>
+
+        <h3 class="sub">goto: ممنوع غالبًا… إلا هنا <span class="tag">cleanup</span></h3>
+        <p>الـ <code>goto</code> بيقفز لـ label في نفس الدالة. استخدامه المقبول الوحيد في C الحديث: <b>تنظيف الموارد</b> عند الأخطاء (أسلوب Linux kernel). ومهم تعرفه لأن الـ <b>decompilers</b> بتطلّع <code>goto</code> كتير لما الـ control flow يكون معقد أو متعمله obfuscation.</p>
+        <c-example file="goto_cleanup.c">
+#include <stdio.h>
+#include <stdlib.h>
+
+static int process(int fail_at) {
+    int rc = -1;
+    char *a = NULL, *b = NULL;
+
+    a = malloc(64);
+    if (!a || fail_at == 1) goto cleanup;
+    b = malloc(64);
+    if (!b || fail_at == 2) goto cleanup;
+
+    puts("  work done");
+    rc = 0;
+
+cleanup:                    /* single exit point: free everything */
+    free(b);                /* free(NULL) is safe */
+    free(a);
+    return rc;
+}
+
+int main(void) {
+    printf("run ok   -> rc=%d\n", process(0));
+    printf("fail @1  -> rc=%d\n", process(1));
+    printf("fail @2  -> rc=%d\n", process(2));
+    return 0;
+}
+        </c-example>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 04</h3></div>
+
+          <quiz id="s04-q1" answer="1">
+            <q>في الـ disassembly:<pre-asm>
+cmp     DWORD PTR [rbp-4], 9
+jg      .L_else
+; ... body ...
+            </pre-asm>الشرط الأصلي في C (لو المتغير <code>x</code> وsigned) غالبًا كان...</q>
+            <o><code>if (x &gt; 9)</code></o>
+            <o><code>if (x &lt;= 9)</code> أو <code>if (x &lt; 10)</code></o>
+            <o><code>if (x == 9)</code></o>
+            <o><code>if (x &gt;= 9)</code></o>
+            <good>الـ compiler بيقفز <b>فوق</b> الجسم لما الشرط يفشل. القفز بيحصل لو <code>x &gt; 9</code>، فالجسم بيتنفذ لما <code>x &lt;= 9</code>.</good>
+            <bad>افتكر إن الـ jump بيمثّل الشرط <b>المعكوس</b> — هو اللي بيعدّي الجسم.</bad>
+          </quiz>
+
+          <quiz id="s04-q2" answer="3">
+            <q>شفت <code>cmp eax, 7</code> بعدها <code>ja default_case</code> بعدها <code>jmp qword ptr [rax*8 + table]</code>. ده إيه؟</q>
+            <o>loop بيلف 7 مرات</o>
+            <o>استدعاء دالة عادي</o>
+            <o>مقارنة strings</o>
+            <o><code>switch</code> بـ jump table، فيه cases من 0 لـ 7</o>
+            <good>bounds check بـ <code>ja</code> (unsigned، فبيرفض السالب كمان) + قفزة غير مباشرة عبر جدول = jump table لـ <code>switch</code>.</good>
+            <bad>القفزة عن طريق جدول عناوين مفهرس بقيمة المتغير بتمثل أنهي تركيبة؟</bad>
+          </quiz>
+
+          <quiz id="s04-q3" answer="0">
+            <q>ليه الـ bounds check قبل الـ jump table بيستخدم <code>ja</code> (unsigned) حتى لو المتغير <code>int</code>؟</q>
+            <o>عشان الرقم السالب يتحوّل لرقم unsigned ضخم، فمقارنة واحدة بترفض السالب والكبير مع بعض</o>
+            <o>لأن الـ <code>switch</code> مش بيقبل signed</o>
+            <o>صدفة</o>
+            <o>عشان أسرع من <code>jg</code></o>
+            <good>Trick ذكي: <code>(unsigned)x &gt; N</code> بيغطي <code>x &lt; 0 || x &gt; N</code> في instruction واحدة. هتشوفه في كل bounds check.</good>
+            <bad>فكّر: <code>-1</code> لو اتقرا unsigned يبقى كام؟</bad>
+          </quiz>
+
+          <quiz id="s04-q4" answer="2">
+            <q>هيطبع كام سطر؟<pre-c>
+int i = 10;
+do {
+    puts("hi");
+} while (i < 5);
+            </pre-c></q>
+            <o>0</o>
+            <o>5</o>
+            <o>1</o>
+            <o>loop لا نهائي</o>
+            <good>الـ <code>do-while</code> بينفذ الجسم <b>مرة على الأقل</b> قبل ما يختبر الشرط.</good>
+            <bad>في <code>do-while</code> الشرط بيتختبر بعد الجسم.</bad>
+          </quiz>
+
+          <quiz id="s04-q5" answer="1">
+            <q>أهم علامة تعرّفك إن فيه loop في الـ disassembly هي...</q>
+            <o>instruction اسمها <code>loop</code> دايمًا</o>
+            <o>conditional jump لعنوان <b>قبله</b> (back-edge)</o>
+            <o>استدعاء <code>call</code></o>
+            <o>وجود <code>push rbp</code></o>
+            <good>الـ back-edge (قفزة لورا) هو تعريف الـ loop في الـ control flow graph. instruction <code>loop</code> نادرًا ما الـ compilers الحديثة بتستخدمها.</good>
+            <bad>الـ loop = تكرار = لازم الكود يرجع لمكان اتنفذ قبل كده.</bad>
+          </quiz>
+
+          <quiz id="s04-q6" answer="3">
+            <q>switch على <code>level = 2</code> بالشكل ده (من غير <code>break</code> في case 2):<pre-c>
+switch (level) {
+    case 2: puts("A");
+    case 1: puts("B"); break;
+    case 0: puts("C");
+}
+            </pre-c>هيطبع إيه؟</q>
+            <o><code>A</code></o>
+            <o><code>A</code> ثم <code>B</code> ثم <code>C</code></o>
+            <o><code>B</code></o>
+            <o><code>A</code> ثم <code>B</code></o>
+            <good>Fall-through: من غير <code>break</code> التنفيذ بيكمّل في الـ case اللي بعده لحد أول <code>break</code>.</good>
+            <bad>الـ <code>case</code> مجرد label. التنفيذ بيكمّل لحد ما يلاقي <code>break</code>.</bad>
+          </quiz>
+
+          <challenge id="s04-c1" title="FizzBuzz بنكهة الـ Malware">
+            <desc>من 1 لـ 15: لو الرقم يقبل القسمة على 3 و5 اطبع <code>SCAN</code>، على 3 بس <code>HASH</code>، على 5 بس <code>DUMP</code>، غير كده اطبع الرقم. كل واحد في سطر.</desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    for (int i = 1; i <= 15; i++) {
+        // TODO
+    }
+    return 0;
+}
+            </starter>
+            <expected>
+1
+2
+HASH
+4
+DUMP
+HASH
+7
+8
+HASH
+DUMP
+11
+HASH
+13
+14
+SCAN
+            </expected>
+            <solution>
+#include <stdio.h>
+
+int main(void) {
+    for (int i = 1; i <= 15; i++) {
+        if (i % 15 == 0)      puts("SCAN");
+        else if (i % 3 == 0)  puts("HASH");
+        else if (i % 5 == 0)  puts("DUMP");
+        else                  printf("%d\n", i);
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s04-c2" title="Command Dispatcher" level="2">
+            <desc>عندك array من أوامر جاية من "C2". لكل أمر استخدم <code>switch</code>: <code>0x10</code> ← <code>ping</code>، <code>0x20</code> ← <code>exec</code>، <code>0x30</code> و<code>0x31</code> (نفس الحالة) ← <code>file-op</code>، <code>0xFF</code> ← <code>exit</code> و<b>اخرج من الـ loop</b>، أي حاجة تانية ← <code>bad-cmd 0x..</code> (hex بحرفين كبار). الناتج:<br><code>ping</code><br><code>exec</code><br><code>file-op</code><br><code>bad-cmd 0x42</code><br><code>file-op</code><br><code>exit</code></desc>
+            <starter>
+#include <stdio.h>
+
+int main(void) {
+    unsigned char cmds[] = { 0x10, 0x20, 0x30, 0x42, 0x31, 0xFF, 0x10 };
+    for (size_t i = 0; i < sizeof cmds; i++) {
+        // TODO: switch on cmds[i]
+    }
+    return 0;
+}
+            </starter>
+            <expected>
+ping
+exec
+file-op
+bad-cmd 0x42
+file-op
+exit
+            </expected>
+            <solution>
+#include <stdio.h>
+
+int main(void) {
+    unsigned char cmds[] = { 0x10, 0x20, 0x30, 0x42, 0x31, 0xFF, 0x10 };
+    int running = 1;
+    for (size_t i = 0; i < sizeof cmds && running; i++) {
+        switch (cmds[i]) {
+            case 0x10: puts("ping"); break;
+            case 0x20: puts("exec"); break;
+            case 0x30:
+            case 0x31: puts("file-op"); break;
+            case 0xFF: puts("exit"); running = 0; break;
+            default:   printf("bad-cmd 0x%02X\n", cmds[i]); break;
+        }
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s04-c3" title="Brute-force الـ key" level="2">
+            <desc>دالة <code>check</code> بتقبل key من byte واحد. جرّب كل القيم من <code>0</code> لـ <code>255</code> بـ loop، واطبع أول key ينجح ووقف:<br><code>key found: 0xC3</code><br>(ده بالظبط اللي بتعمله لما تكسر crackme بسيط بالـ brute force.)</desc>
+            <starter>
+#include <stdio.h>
+
+static int check(unsigned char k) {
+    return ((k ^ 0x5A) + 7) % 256 == 0xA0;
+}
+
+int main(void) {
+    // TODO: loop over all 256 values
+    (void)check;
+    return 0;
+}
+            </starter>
+            <expected>
+key found: 0xC3
+            </expected>
+            <solution>
+#include <stdio.h>
+
+static int check(unsigned char k) {
+    return ((k ^ 0x5A) + 7) % 256 == 0xA0;
+}
+
+int main(void) {
+    for (int k = 0; k <= 255; k++) {
+        if (check((unsigned char)k)) {
+            printf("key found: 0x%02X\n", k);
+            break;
+        }
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

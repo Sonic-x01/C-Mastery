@@ -1,0 +1,409 @@
+      <section class="section" id="s14" data-part="الجزء 3 · C تحت المجهر" data-nav="من C لـ Assembly" data-icon="🔬" data-keywords="stack frame prologue epilogue push rbp leave return address local variables red zone shadow space calling convention system v microsoft x64 ms_abi callee saved caller saved struct return hidden pointer magic number division optimization idioms decompile">
+        <div class="section-head">
+          <span class="section-index">14</span>
+          <div>
+            <p class="eyebrow">المرحلة الرابعة عشر · أهم مرحلة في الكورس</p>
+            <h2>من C لـ Assembly: الـ Stack Frame، الـ Calling Conventions، والـ Optimizations</h2>
+            <p class="lede">هنا بنربط كل حاجة. هتشوف الـ stack frame بالـ byte، الفرق الحقيقي بين Linux وWindows في استدعاء الدوال، وأشهر "حيل" الـ compiler اللي بتخلي الـ Assembly يبان غريب. بعد المرحلة دي، المفروض أي دالة <code>-O0</code> تقراها في دقيقة، وأي دالة <code>-O2</code> تفكها بالصبر.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">تشريح الـ Stack Frame <span class="tag">prologue · epilogue</span></h3>
+        <div class="side-by-side">
+          <c-example file="frame.c" norun>
+#include <string.h>
+
+int process(const char *input) {
+    char buf[32];
+    int len = (int)strlen(input);
+    strcpy(buf, input);        /* unsafe on purpose */
+    return len + buf[0];
+}
+          </c-example>
+          <asm-block file="frame.s (gcc -O0)">
+process:
+        push    rbp                     ; save caller's frame
+        mov     rbp, rsp                ; new frame base
+        sub     rsp, 64                 ; room for locals
+        mov     QWORD PTR [rbp-56], rdi ; input
+        mov     rax, QWORD PTR [rbp-56]
+        mov     rdi, rax
+        call    strlen
+        mov     DWORD PTR [rbp-4], eax  ; len
+        mov     rdx, QWORD PTR [rbp-56]
+        lea     rax, [rbp-48]           ; &buf[0]
+        mov     rsi, rdx                ; src = input
+        mov     rdi, rax                ; dst = buf
+        call    strcpy
+        movzx   eax, BYTE PTR [rbp-48]  ; buf[0]
+        movsx   edx, al                 ; char -> int
+        mov     eax, DWORD PTR [rbp-4]
+        add     eax, edx                ; len + buf[0]
+        leave                           ; rsp=rbp; pop rbp
+        ret                             ; pop return address
+          </asm-block>
+        </div>
+        <div class="mem">
+          <div class="mem-title">الـ stack وقت تنفيذ process() — العناوين العالية فوق</div>
+          <div class="mem-row"><span class="addr">rbp+16 …</span><span class="val">caller frame</span><span class="what">frame الدالة اللي نادت</span></div>
+          <div class="mem-row ret"><span class="addr">rbp+8</span><span class="val">return address</span><span class="what">اتحط بـ <code>call</code> — <code>ret</code> هيرجع له</span></div>
+          <div class="mem-row ret"><span class="addr">rbp+0</span><span class="val">saved rbp</span><span class="what">اتحط بـ <code>push rbp</code></span></div>
+          <div class="mem-row hl"><span class="addr">rbp-4</span><span class="val">len</span><span class="what">int (4 bytes)</span></div>
+          <div class="mem-row"><span class="addr">rbp-16 … rbp-8</span><span class="val">(unused)</span><span class="what">padding / alignment</span></div>
+          <div class="mem-row warn"><span class="addr">rbp-48 … rbp-17</span><span class="val">buf[32]</span><span class="what">buf[0] عند rbp-48، والكتابة بتطلع <b>لفوق</b> ناحية rbp</span></div>
+          <div class="mem-row"><span class="addr">rbp-56</span><span class="val">input</span><span class="what">نسخة الـ argument (اتحفظ من <code>rdi</code>)</span></div>
+          <div class="mem-row"><span class="addr">rbp-64 = rsp</span><span class="val">—</span><span class="what">قمة الـ stack</span></div>
+          <div class="mem-cap">⚠ <code>strcpy</code> بيكتب من <code>rbp-48</code> لفوق: بعد 44 byte بيوصل لـ <code>len</code>، بعد 48 للـ saved rbp، وبعد <b>56 byte للـ return address</b>. ده بالظبط الـ stack buffer overflow (المرحلة 15).</div>
+        </div>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الجزء</th><th>Instructions</th><th>الوظيفة</th></tr></thead>
+            <tbody>
+              <tr><td><b>Prologue</b></td><td><code>push rbp</code> · <code>mov rbp, rsp</code> · <code>sub rsp, N</code></td><td>يحفظ الـ frame القديم ويحجز مكان للمتغيرات. <b>N = حجم المتغيرات المحلية تقريبًا</b> (معلومة مفيدة!)</td></tr>
+              <tr><td><b>Body</b></td><td>locals = <code>[rbp-X]</code> · args (32-bit) = <code>[rbp+X]</code></td><td>كل متغير محلي له offset ثابت</td></tr>
+              <tr><td><b>Epilogue</b></td><td><code>leave</code> (أو <code>mov rsp, rbp; pop rbp</code>) · <code>ret</code></td><td>يرجّع الـ stack ويقفز للـ return address</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>في -O2 الـ frame pointer بيختفي</strong><p>مع الـ optimization، gcc بيوقف استخدام <code>rbp</code> كـ frame pointer (<code>-fomit-frame-pointer</code>)، والمتغيرات بتبقى <code>[rsp+X]</code> أو في registers خالص. وفي Linux فيه <b>red zone</b>: الدوال الـ leaf (اللي مبتناديش حد) ممكن تستخدم 128 byte تحت <code>rsp</code> من غير <code>sub rsp</code>.</p></div></div>
+
+        <h3 class="sub">System V vs Microsoft x64 — نفس الكود <span class="tag">calling conventions</span></h3>
+        <p>الـ GCC يقدر يطلّع الـ convention بتاعة Windows بـ <code>__attribute__((ms_abi))</code>، فشوف الفرق بعينك (gcc -O2 حقيقي):</p>
+        <div class="side-by-side">
+          <c-example file="conventions.c" norun>
+long callee6(long a, long b, long c,
+             long d, long e, long f, long g);
+
+long sysv_caller(void) {
+    return callee6(1, 2, 3, 4, 5, 6, 7);
+}
+
+__attribute__((ms_abi))
+long win_callee(long a, long b, long c,
+                long d, long e);
+
+__attribute__((ms_abi))
+long win_caller(void) {
+    return win_callee(1, 2, 3, 4, 5) + 1;
+}
+          </c-example>
+          <asm-block file="conventions.s (gcc -O2)">
+sysv_caller:                     ; Linux / System V
+        sub     rsp, 16          ; keep 16-byte alignment
+        mov     r9d, 6           ; arg6
+        mov     r8d, 5           ; arg5
+        mov     ecx, 4           ; arg4
+        push    7                ; arg7 -> stack
+        mov     edx, 3           ; arg3
+        mov     esi, 2           ; arg2
+        mov     edi, 1           ; arg1
+        call    callee6
+        add     rsp, 24          ; caller cleans up
+        ret
+win_caller:                      ; Microsoft x64
+        sub     rsp, 56          ; 32 shadow + args + align
+        mov     r9d, 4           ; arg4
+        mov     r8d, 3           ; arg3
+        mov     edx, 2           ; arg2
+        mov     QWORD PTR [rsp+32], 5 ; arg5 ABOVE shadow
+        mov     ecx, 1           ; arg1
+        call    win_callee
+        add     rsp, 56
+        add     rax, 1
+        ret
+          </asm-block>
+        </div>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th></th><th>System V AMD64 (Linux/macOS)</th><th>Microsoft x64 (Windows)</th></tr></thead>
+            <tbody>
+              <tr><td>Integer args</td><td><code>rdi rsi rdx rcx r8 r9</code></td><td><code>rcx rdx r8 r9</code></td></tr>
+              <tr><td>Float args</td><td><code>xmm0–xmm7</code></td><td><code>xmm0–xmm3</code> (بنفس ترتيب الخانة)</td></tr>
+              <tr><td>باقي الـ args</td><td>على الـ stack</td><td>على الـ stack <b>بعد 32 byte shadow space</b> (<code>[rsp+20h]</code> الأول)</td></tr>
+              <tr><td>الرجوع</td><td><code>rax</code> (و<code>rdx</code> للـ 128-bit)</td><td><code>rax</code></td></tr>
+              <tr><td>Callee-saved (لازم الدالة تحافظ عليهم)</td><td><code>rbx rbp r12–r15</code></td><td><code>rbx rbp rdi rsi r12–r15 xmm6–xmm15</code></td></tr>
+              <tr><td>Red zone</td><td>128 byte</td><td>مفيش</td></tr>
+              <tr><td>Alignment</td><td colspan="2"><code>rsp</code> لازم يبقى مضاعف 16 لحظة الـ <code>call</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>علامة Windows x64 في أي function</strong><p>لو شفت <code>sub rsp, 28h</code> (= 32 shadow + 8 alignment) في أول دالة بتنادي دوال تانية، ده Windows x64 بنسبة كبيرة. ولو لقيت <code>mov [rsp+8], rcx</code> و<code>mov [rsp+10h], rdx</code> في الأول — الدالة بتحفظ الـ args في الـ shadow space بتاعها (MSVC debug builds بتعمل كده).</p></div></div>
+
+        <h3 class="sub">Callee-saved: ليه push rbx في أول الدالة؟ <span class="tag">register preservation</span></h3>
+        <p>لو الدالة محتاجة register من الـ callee-saved (زي <code>rbx</code> أو <code>r12</code>) عشان يعيش قيمة عبر <code>call</code>، لازم تعمله <code>push</code> في الأول و<code>pop</code> في الآخر. <b>عدد الـ push في الـ prologue = كام متغير "مهم" بتحتفظ بيه الدالة طول عمرها</b> — غالبًا الـ arguments أو الـ loop counters.</p>
+
+        <h3 class="sub">رجوع struct كبير: الـ Hidden Pointer <span class="tag">sret</span></h3>
+        <div class="side-by-side">
+          <c-example file="ret_struct.c" norun>
+struct big { long a, b, c, d; };   /* 32 bytes */
+
+struct big make(long v) {
+    struct big r = { v, v + 1, v + 2, v + 3 };
+    return r;
+}
+          </c-example>
+          <asm-block file="ret_struct.s (gcc -O2)">
+make:                            ; rdi = HIDDEN ptr to result
+        lea     rdx, [rsi+1]     ; v is in rsi (2nd slot!)
+        mov     QWORD PTR [rdi], rsi
+        mov     rax, rdi         ; return the hidden ptr
+        mov     QWORD PTR [rdi+8], rdx
+        lea     rdx, [rsi+2]
+        add     rsi, 3
+        mov     QWORD PTR [rdi+16], rdx
+        mov     QWORD PTR [rdi+24], rsi
+        ret
+          </asm-block>
+        </div>
+        <p>الـ struct الكبير (أكتر من 16 byte على Linux، أكتر من 8 على Windows) مش بيرجع في <code>rax</code>. اللي بينادي بيحجز مكان، وبيبعت عنوانه كـ <b>argument أول مخفي</b> — فكل الـ arguments الحقيقية بتتزحلق خانة! <code>v</code> هنا جه في <code>rsi</code> مش <code>rdi</code>. لو الـ decompiler بيوريك argument زيادة بيتكتب فيه وبيرجع — ده هو.</p>
+
+        <h3 class="sub">القسمة على ثابت = ضرب في Magic Number <span class="tag">strength reduction</span></h3>
+        <div class="side-by-side">
+          <c-example file="magic.c" norun>
+unsigned div10(unsigned x) { return x / 10; }
+int      sdiv8(int x)      { return x / 8; }
+unsigned mod16(unsigned x) { return x % 16; }
+int      sdiv7(int x)      { return x / 7; }
+          </c-example>
+          <asm-block file="magic.s (gcc -O2)">
+div10:
+        mov     eax, edi
+        mov     edx, 3435973837   ; 0xCCCCCCCD
+        imul    rax, rdx
+        shr     rax, 35           ; (x * 0xCCCCCCCD) >> 35
+        ret
+sdiv8:
+        test    edi, edi
+        lea     eax, [rdi+7]      ; negative: round toward 0
+        cmovns  eax, edi
+        sar     eax, 3
+        ret
+mod16:
+        mov     eax, edi
+        and     eax, 15           ; x % 16 == x & 15
+        ret
+sdiv7:
+        movsx   rax, edi
+        imul    rax, rax, -1840700269 ; 0x92492493
+        shr     rax, 32
+        add     eax, edi
+        sar     edi, 31           ; sign correction
+        sar     eax, 2
+        sub     eax, edi
+        ret
+          </asm-block>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>إزاي تفك الـ magic number</strong><p>لو شفت <code>imul</code> بثابت ضخم وبعده <code>shr</code> بـ N: القاسم ≈ <code>2^N / magic</code>. مثال: <code>2^35 / 0xCCCCCCCD = 34359738368 / 3435973837 ≈ 10.0</code> ← <code>x / 10</code>. ولو بعدها <code>imul</code> بالقاسم و<code>sub</code> من الأصل — ده <code>x % 10</code>. IDA وGhidra بيعملوا ده أوتوماتيك غالبًا، لكن لازم تعرف الشكل لما الـ decompiler يغلط.</p></div></div>
+        <c-example file="verify_magic.c">
+#include <stdio.h>
+#include <stdint.h>
+
+/* Prove the compiler's trick: (x * 0xCCCCCCCD) >> 35 == x / 10 for every 32-bit x tested */
+int main(void) {
+    uint32_t samples[] = { 0, 9, 10, 99, 12345, 4294967295u };
+    for (int i = 0; i < 6; i++) {
+        uint32_t x = samples[i];
+        uint32_t fast = (uint32_t)(((uint64_t)x * 0xCCCCCCCDull) >> 35);
+        printf("%10u / 10 = %9u   magic = %9u   %s\n", x, x / 10, fast, x / 10 == fast ? "OK" : "MISMATCH");
+    }
+    double approx = (double)(1ull << 35) / 0xCCCCCCCDu;
+    printf("2^35 / 0xCCCCCCCD = %.6f\n", approx);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">قاموس الـ Idioms <span class="tag">cheat table</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>شايف في الـ Assembly</th><th>غالبًا الكود الأصلي</th></tr></thead>
+            <tbody>
+              <tr><td><code>xor eax, eax</code></td><td><code>eax = 0</code></td></tr>
+              <tr><td><code>test eax, eax</code> + <code>je</code></td><td><code>if (x == 0)</code> / <code>if (!p)</code></td></tr>
+              <tr><td><code>lea eax, [rdi+rdi*2]</code></td><td><code>x * 3</code></td></tr>
+              <tr><td><code>shl eax, 4</code></td><td><code>x * 16</code></td></tr>
+              <tr><td><code>and eax, 0Fh</code> (unsigned)</td><td><code>x % 16</code></td></tr>
+              <tr><td><code>imul</code> بثابت كبير + <code>shr</code></td><td>قسمة على ثابت</td></tr>
+              <tr><td><code>cdq</code> / <code>sar reg, 31</code></td><td>تجهيز علامة لقسمة signed</td></tr>
+              <tr><td><code>cmp</code> + <code>cmovl</code></td><td><code>min</code>/<code>max</code>/ternary</td></tr>
+              <tr><td><code>cmp</code> + <code>setg al</code> + <code>movzx eax, al</code></td><td><code>return a &gt; b;</code></td></tr>
+              <tr><td><code>sub eax, 1</code> + <code>cmp eax, N</code> + <code>ja</code></td><td><code>switch</code> cases تبدأ من 1 (range check)</td></tr>
+              <tr><td><code>neg eax</code> + <code>sbb eax, eax</code></td><td><code>x != 0 ? -1 : 0</code> (branchless)</td></tr>
+              <tr><td><code>movdqu</code>/<code>movups</code> زوجين</td><td><code>memcpy</code> صغير / نسخ struct</td></tr>
+              <tr><td><code>rep stosq</code> / <code>pxor</code> + <code>movaps</code></td><td><code>memset(..., 0, ...)</code> / <code>= {0}</code></td></tr>
+              <tr><td><code>jmp</code> لدالة تانية بدل <code>call</code> + <code>ret</code></td><td>tail call (<code>return other(...)</code>)</td></tr>
+              <tr><td><code>mov rax, fs:28h</code> … <code>xor rax, fs:28h</code></td><td>stack canary (المرحلة 15)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">منهجية فك أي دالة <span class="tag">workflow</span></h3>
+        <div class="steps">
+          <div class="step"><span class="n">01</span><div><h4>الـ Signature</h4><p>أنهي registers بتتقرا قبل ما تتكتب؟ (= الـ args). إيه اللي في <code>rax</code> قبل <code>ret</code>؟ حجم الـ <code>sub rsp</code>؟</p></div></div>
+          <div class="step"><span class="n">02</span><div><h4>الـ Calls</h4><p>أي call لـ API معروفة بيسمّي اللي حواليه: الـ args بتاعتها بتقولك أنواع المتغيرات (<code>CreateFileW</code> ← الـ arg الأول wide string path).</p></div></div>
+          <div class="step"><span class="n">03</span><div><h4>الـ Control Flow</h4><p>حدد الـ loops (back-edges) والـ ifs. ارسم الـ graph في دماغك أو استخدم graph view.</p></div></div>
+          <div class="step"><span class="n">04</span><div><h4>الـ Data</h4><p>كل <code>[reg+offset]</code> متكرر = struct. كل <code>[base+i*size]</code> = array. ثوابت كبيرة = magic/hash/crypto.</p></div></div>
+          <div class="step"><span class="n">05</span><div><h4>سمّي وعلّق</h4><p>سمّي الدالة والمتغيرات والـ structs في Ghidra/IDA حتى لو التخمين مش أكيد (حط <code>?</code>). الأسماء بتنتشر في كل الكود وبتوضح الصورة.</p></div></div>
+        </div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 14</h3></div>
+
+          <quiz id="s14-q1" answer="2">
+            <q>في الـ frame اللي فوق، الـ <code>buf</code> عند <code>rbp-48</code>. كام byte لازم تتكتب في <code>buf</code> عشان توصل لأول byte في الـ return address؟</q>
+            <o>32</o>
+            <o>48</o>
+            <o>56</o>
+            <o>64</o>
+            <good>من <code>rbp-48</code> لـ <code>rbp+8</code> = 56 byte (48 لحد <code>rbp</code> + 8 للـ saved rbp). أول byte بعدهم = أول byte من الـ return address.</good>
+            <bad>المسافة من <code>rbp-48</code> لحد <code>rbp+8</code>.</bad>
+          </quiz>
+
+          <quiz id="s14-q2" answer="0">
+            <q>على Windows x64، الـ argument الخامس لدالة بيتحط فين لحظة الـ <code>call</code>؟</q>
+            <o><code>[rsp+20h]</code> — بعد الـ 32 byte shadow space</o>
+            <o><code>r10</code></o>
+            <o><code>[rsp]</code></o>
+            <o><code>rdi</code></o>
+            <good>أول 4 في <code>rcx, rdx, r8, r9</code>، والـ shadow space (0x20) محجوز ليهم، فالخامس عند <code>rsp+0x20</code>. شفناها: <code>mov QWORD PTR [rsp+32], 5</code>.</good>
+            <bad>افتكر الـ 32 byte اللي الـ caller بيحجزها على Windows.</bad>
+          </quiz>
+
+          <quiz id="s14-q3" answer="3">
+            <q>شفت <code>mov eax, 0AAAAAAABh</code> ثم <code>mul edi</code> ثم <code>shr edx, 1</code> والنتيجة في <code>edx</code>. ده غالبًا...</q>
+            <o><code>x * 3</code></o>
+            <o><code>x / 2</code></o>
+            <o><code>x % 3</code></o>
+            <o><code>x / 3</code> (unsigned)</o>
+            <good><code>mul</code> بيحط النص العالي في <code>edx</code> = ضمني shift بـ 32، وبعدين shift 1: الإجمالي 33. <code>2^33 / 0xAAAAAAAB ≈ 3</code>.</good>
+            <bad>القاسم ≈ 2^(32 + الـ shift) ÷ الـ magic.</bad>
+          </quiz>
+
+          <quiz id="s14-q4" answer="1">
+            <q>دالة بتاخد argument واحد في الكود، بس في الـ disassembly (Linux) بتكتب في <code>[rdi]</code> و<code>[rdi+8]</code>… و<code>[rdi+24]</code> وبترجع <code>rdi</code> في <code>rax</code>، والـ argument الحقيقي في <code>rsi</code>. التفسير؟</q>
+            <o>الدالة variadic</o>
+            <o>بترجع struct كبير عن طريق hidden pointer في <code>rdi</code></o>
+            <o>الـ compiler غلط</o>
+            <o>دي C++ <code>this</code></o>
+            <good>الـ struct الكبير بيرجع عن طريق pointer مخفي كأول argument، وبيترجع في <code>rax</code> كمان. (الـ C++ <code>this</code> برضو بيبقى في <code>rdi</code>/<code>rcx</code> — بس هنا الكتابة كلها في كل الـ fields والرجوع بيه هو علامة الـ sret.)</good>
+            <bad>شوف مثال <code>make()</code>.</bad>
+          </quiz>
+
+          <quiz id="s14-q5" answer="2">
+            <q>دالة بتبدأ بـ <code>push r12</code>، <code>push rbp</code>، <code>push rbx</code>. معنى ده؟</q>
+            <o>بتاخد 3 arguments</o>
+            <o>بتحجز buffer</o>
+            <o>هتستخدم 3 callee-saved registers لقيم لازم تعيش عبر الـ calls اللي جواها، فلازم تحفظ قيمهم القديمة</o>
+            <o>anti-debugging</o>
+            <good>الـ callee-saved registers لازم ترجع زي ما كانت. الـ push/pop حواليها بيقولك الدالة بتحتفظ بكام قيمة "طويلة العمر".</good>
+            <bad>مين لازم يحافظ على <code>rbx</code> و<code>r12</code>؟</bad>
+          </quiz>
+
+          <challenge id="s14-c1" title="Decompile: دالة بـ magic numbers" level="3">
+            <desc>اكتب بـ C الدالة دي (Linux ABI، <code>x</code> unsigned 32-bit) واطبع <code>f(123456)</code> و<code>f(9)</code> و<code>f(1000)</code>:<pre class="q-code"><code class="language-asm">f:
+    mov   eax, edi
+    mov   edx, 3435973837
+    imul  rax, rdx
+    shr   rax, 35          ; eax = q
+    lea   edx, [rax+rax*4]
+    add   edx, edx         ; edx = q * 10
+    sub   edi, edx         ; edi = x - q*10
+    add   eax, edi         ; return ?
+    ret</code></pre>الناتج:<br><code>12351</code><br><code>9</code><br><code>100</code></desc>
+            <starter>
+#include <stdio.h>
+
+unsigned f(unsigned x) {
+    // TODO
+    return x;
+}
+
+int main(void) {
+    printf("%u\n%u\n%u\n", f(123456), f(9), f(1000));
+    return 0;
+}
+            </starter>
+            <expected>
+12351
+9
+100
+            </expected>
+            <solution>
+#include <stdio.h>
+
+unsigned f(unsigned x) {
+    unsigned q = x / 10;       /* the magic multiply */
+    unsigned r = x % 10;       /* x - q*10           */
+    return q + r;
+}
+
+int main(void) {
+    printf("%u\n%u\n%u\n", f(123456), f(9), f(1000));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s14-c2" title="Decompile: loop مع struct" level="3">
+            <desc>الدالة دي (Linux، <code>-O2</code>) بتاخد pointer لـ array من structs وعددهم. أعد بناء الـ struct (offset 0: int، offset 4: int) واكتب الدالة بـ C:<pre class="q-code"><code class="language-asm">g:
+    test  esi, esi
+    jle   .L6
+    movsx rsi, esi
+    xor   edx, edx
+    lea   rcx, [rdi+rsi*8]
+.L5:
+    mov   eax, DWORD PTR [rdi]
+    imul  eax, DWORD PTR [rdi+4]
+    add   rdi, 8
+    add   edx, eax
+    cmp   rcx, rdi
+    jne   .L5
+    mov   eax, edx
+    ret
+.L6:
+    xor   edx, edx
+    mov   eax, edx
+    ret</code></pre>اطبع النتيجة لـ <code>{ {2,3}, {4,5}, {10,1} }</code> (3 عناصر) ولـ 0 عناصر:<br><code>36</code><br><code>0</code></desc>
+            <starter>
+#include <stdio.h>
+
+typedef struct { int a; int b; } Item;   /* rebuilt from the offsets */
+
+int g(const Item *items, int n) {
+    // TODO
+    (void)items; (void)n;
+    return 0;
+}
+
+int main(void) {
+    Item it[] = { {2, 3}, {4, 5}, {10, 1} };
+    printf("%d\n", g(it, 3));
+    printf("%d\n", g(it, 0));
+    return 0;
+}
+            </starter>
+            <expected>
+36
+0
+            </expected>
+            <solution>
+#include <stdio.h>
+
+typedef struct { int a; int b; } Item;   /* rebuilt from the offsets */
+
+int g(const Item *items, int n) {
+    int total = 0;
+    for (int i = 0; i < n; i++)
+        total += items[i].a * items[i].b;   /* [rdi] * [rdi+4], stride 8 */
+    return total;
+}
+
+int main(void) {
+    Item it[] = { {2, 3}, {4, 5}, {10, 1} };
+    printf("%d\n", g(it, 3));
+    printf("%d\n", g(it, 0));
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

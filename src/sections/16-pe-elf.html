@@ -1,0 +1,385 @@
+      <section class="section" id="s16" data-part="الجزء 3 · C تحت المجهر" data-nav="PE و ELF والـ Linking" data-icon="📦" data-keywords="pe format portable executable elf object file symbols relocation linker dos header e_lfanew nt headers file header optional header section header rva file offset import table iat int export table tls callbacks entropy packer upx data directory dllcharacteristics">
+        <div class="section-head">
+          <span class="section-index">16</span>
+          <div>
+            <p class="eyebrow">المرحلة السادسة عشر</p>
+            <h2>من Object File لـ Executable: الـ Linking وصيغة PE (وELF)</h2>
+            <p class="lede">الـ executable مش مجرد كود — هو <b>ملف منظم</b> فيه headers بتقول للـ loader: حمّلني فين، ابدأ منين، أنهي DLLs أحتاجها، وأنهي أجزاء قابلة للتنفيذ. أول 5 دقايق في تحليل أي sample بتبقى على الـ headers دي (في PE-bear أو pestudio أو DIE) — ومنها بتعرف هل هو packed، بيستورد إيه، اتبنى إمتى وبإيه.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">Object Files والـ Symbols والـ Relocations <span class="tag">linking</span></h3>
+        <p>كل <code>.c</code> بيتحول لـ object file فيه: الكود، البيانات، <b>جدول symbols</b> (الدوال والمتغيرات اللي معرّفها أو محتاجها)، و<b>relocations</b> (أماكن في الكود لسه عنوانها مش معروف). الـ linker بيجمع الـ objects، بيحل كل symbol، وبيكتب العناوين النهائية.</p>
+        <plain-block file="terminal" lang="bash">
+$ gcc -c crypto.c && nm crypto.o
+0000000000000000 B crypto_calls      # B = .bss global
+0000000000000040 T crc32             # T = exported function in .text
+0000000000000000 T xor_crypt
+0000000000000000 t build_table       # t = static (local) function
+0000000000000000 b table             # b = static data in .bss
+                 U memset            # U = undefined: must come from elsewhere
+
+$ objdump -dr -M intel crypto.o | head   # -r shows the relocations
+        </plain-block>
+
+        <h3 class="sub">ELF في لمحة <span class="tag">Linux</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الجزء</th><th>الوصف</th></tr></thead>
+            <tbody>
+              <tr><td>ELF header</td><td>يبدأ بـ <code>7F 45 4C 46</code>، فيه الـ entry point ونوع الملف (EXEC / DYN للـ PIE والـ .so)</td></tr>
+              <tr><td>Program headers (segments)</td><td>اللي الـ loader بيستخدمه: أنهي أجزاء تتحمل وبأي صلاحيات</td></tr>
+              <tr><td>Section headers</td><td>للـ linker والأدوات: <code>.text .rodata .data .bss .symtab .dynsym .plt .got</code></td></tr>
+              <tr><td><code>.plt</code> / <code>.got</code></td><td>آلية الـ dynamic linking: <code>call puts@plt</code> ← قفزة عبر عنوان في الـ GOT</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>أدوات: <code>readelf -h -l -S -s ./bin</code>، <code>objdump -d</code>، <code>ldd</code>، <code>checksec</code>.</p>
+
+        <h3 class="sub">صيغة PE: الخريطة <span class="tag">Windows</span></h3>
+        <div class="mem">
+          <div class="mem-title">PE file — من أول الملف (offset 0) لتحت</div>
+          <div class="mem-row hl"><span class="addr">0x00</span><span class="val">IMAGE_DOS_HEADER</span><span class="what">64 byte · <code>e_magic = "MZ"</code> · <b><code>e_lfanew</code> عند 0x3C</b> = offset الـ NT headers</span></div>
+          <div class="mem-row"><span class="addr">0x40</span><span class="val">DOS stub</span><span class="what">"This program cannot be run in DOS mode." (+ Rich header في MSVC)</span></div>
+          <div class="mem-row hl"><span class="addr">e_lfanew</span><span class="val">"PE\0\0"</span><span class="what">Signature: <code>50 45 00 00</code></span></div>
+          <div class="mem-row"><span class="addr">+4</span><span class="val">IMAGE_FILE_HEADER</span><span class="what">20 byte · Machine، عدد الـ sections، <b>TimeDateStamp</b></span></div>
+          <div class="mem-row"><span class="addr">+24</span><span class="val">IMAGE_OPTIONAL_HEADER64</span><span class="what">240 byte · <b>EntryPoint</b>، <b>ImageBase</b>، الـ alignment، Subsystem، <b>DataDirectory[16]</b></span></div>
+          <div class="mem-row"><span class="addr">+264</span><span class="val">Section table</span><span class="what">40 byte لكل section: الاسم، العناوين، الأحجام، الصلاحيات</span></div>
+          <div class="mem-row ret"><span class="addr">PointerToRawData</span><span class="val">.text .rdata .data …</span><span class="what">بيانات الـ sections الفعلية</span></div>
+        </div>
+
+        <h3 class="sub">الـ Structs بالـ offsets <span class="tag">winnt.h</span></h3>
+        <c-example file="pe_structs.c">
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+
+/* Same layout as <winnt.h>, written with fixed-size types so it works anywhere */
+#pragma pack(push, 1)
+typedef struct {
+    uint16_t e_magic;        /* "MZ" = 0x5A4D */
+    uint16_t e_cblp, e_cp, e_crlc, e_cparhdr, e_minalloc, e_maxalloc, e_ss, e_sp,
+             e_csum, e_ip, e_cs, e_lfarlc, e_ovno, e_res[4], e_oemid, e_oeminfo, e_res2[10];
+    int32_t  e_lfanew;       /* file offset of the NT headers */
+} DOS_HEADER;
+
+typedef struct {
+    uint16_t Machine;              /* 0x8664 = x64, 0x14C = x86 */
+    uint16_t NumberOfSections;
+    uint32_t TimeDateStamp;        /* build time (can be faked!) */
+    uint32_t PointerToSymbolTable, NumberOfSymbols;
+    uint16_t SizeOfOptionalHeader;
+    uint16_t Characteristics;      /* 0x2000 = DLL */
+} FILE_HEADER;
+
+typedef struct { uint32_t VirtualAddress, Size; } DATA_DIRECTORY;
+
+typedef struct {
+    uint16_t Magic;                /* 0x20B = PE32+ (64-bit) */
+    uint8_t  MajorLinkerVersion, MinorLinkerVersion;
+    uint32_t SizeOfCode, SizeOfInitializedData, SizeOfUninitializedData;
+    uint32_t AddressOfEntryPoint;  /* RVA where execution starts */
+    uint32_t BaseOfCode;
+    uint64_t ImageBase;            /* preferred load address */
+    uint32_t SectionAlignment, FileAlignment;
+    uint16_t MajorOperatingSystemVersion, MinorOperatingSystemVersion;
+    uint16_t MajorImageVersion, MinorImageVersion;
+    uint16_t MajorSubsystemVersion, MinorSubsystemVersion;
+    uint32_t Win32VersionValue, SizeOfImage, SizeOfHeaders, CheckSum;
+    uint16_t Subsystem;            /* 2 = GUI, 3 = console */
+    uint16_t DllCharacteristics;   /* ASLR / NX / CFG flags */
+    uint64_t SizeOfStackReserve, SizeOfStackCommit, SizeOfHeapReserve, SizeOfHeapCommit;
+    uint32_t LoaderFlags, NumberOfRvaAndSizes;
+    DATA_DIRECTORY DataDirectory[16];   /* [1] = imports, [0] = exports ... */
+} OPTIONAL_HEADER64;
+
+typedef struct {
+    char     Name[8];              /* NOT always NUL-terminated! */
+    uint32_t VirtualSize, VirtualAddress;      /* in memory  */
+    uint32_t SizeOfRawData, PointerToRawData;  /* in the file */
+    uint32_t PointerToRelocations, PointerToLinenumbers;
+    uint16_t NumberOfRelocations, NumberOfLinenumbers;
+    uint32_t Characteristics;      /* 0x20000000 X, 0x40000000 R, 0x80000000 W */
+} SECTION_HEADER;
+#pragma pack(pop)
+
+/* Let the compiler prove the layout matches the specification */
+_Static_assert(sizeof(DOS_HEADER) == 64, "DOS header must be 64 bytes");
+_Static_assert(offsetof(DOS_HEADER, e_lfanew) == 0x3C, "e_lfanew at 0x3C");
+_Static_assert(sizeof(FILE_HEADER) == 20, "FILE_HEADER is 20 bytes");
+_Static_assert(sizeof(OPTIONAL_HEADER64) == 240, "OPTIONAL_HEADER64 is 240 bytes");
+_Static_assert(sizeof(SECTION_HEADER) == 40, "SECTION_HEADER is 40 bytes");
+
+int main(void) {
+    printf("DOS_HEADER          %3zu bytes, e_lfanew @ 0x%02zX\n", sizeof(DOS_HEADER), offsetof(DOS_HEADER, e_lfanew));
+    printf("FILE_HEADER         %3zu bytes\n", sizeof(FILE_HEADER));
+    printf("OPTIONAL_HEADER64   %3zu bytes, EntryPoint @ %zu, ImageBase @ %zu, DataDirectory @ %zu\n",
+           sizeof(OPTIONAL_HEADER64), offsetof(OPTIONAL_HEADER64, AddressOfEntryPoint),
+           offsetof(OPTIONAL_HEADER64, ImageBase), offsetof(OPTIONAL_HEADER64, DataDirectory));
+    printf("SECTION_HEADER      %3zu bytes\n", sizeof(SECTION_HEADER));
+    printf("NT headers total    %3zu bytes (4 + 20 + 240)\n", 4 + sizeof(FILE_HEADER) + sizeof(OPTIONAL_HEADER64));
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">أهم الـ fields للمحلل <span class="tag">what to look at</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Field</th><th>ليه يهمك</th></tr></thead>
+            <tbody>
+              <tr><td><code>Machine</code></td><td><code>0x8664</code> x64 · <code>0x14C</code> x86 · <code>0xAA64</code> ARM64</td></tr>
+              <tr><td><code>TimeDateStamp</code></td><td>وقت الـ build (Unix time). مفيد للـ timeline — <b>بس سهل يتزور</b> (لو سنة 1992 أو المستقبل = متزور)</td></tr>
+              <tr><td><code>Characteristics</code></td><td><code>0x2000</code> = DLL · <code>0x0002</code> = executable</td></tr>
+              <tr><td><code>AddressOfEntryPoint</code></td><td>RVA أول instruction. لو بيشاور برا <code>.text</code> (مثلًا في آخر section) = <b>packer</b> غالبًا</td></tr>
+              <tr><td><code>ImageBase</code></td><td>العنوان المفضّل (<code>0x140000000</code> افتراضي لـ EXE 64-bit). بتستخدمه في Ghidra/IDA عشان العناوين تطابق الـ debugger</td></tr>
+              <tr><td><code>Subsystem</code></td><td>2 = GUI (مفيش console window — شائع في الـ malware)، 3 = console</td></tr>
+              <tr><td><code>DllCharacteristics</code></td><td><code>0x40</code> DYNAMIC_BASE (ASLR) · <code>0x100</code> NX_COMPAT · <code>0x4000</code> GUARD_CF</td></tr>
+              <tr><td><code>DataDirectory[1]</code></td><td>الـ Import Table — أول حاجة بتبص عليها</td></tr>
+              <tr><td><code>DataDirectory[0]</code>، <code>[2]</code>، <code>[9]</code></td><td>Exports، Resources (payloads مخبية!)، TLS (كود بيشتغل قبل الـ entry point)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">RVA vs File Offset <span class="tag">address translation</span></h3>
+        <p><b>RVA</b> (Relative Virtual Address) = offset من الـ ImageBase <b>في الذاكرة</b> بعد التحميل. لكن في الملف على الـ disk، الـ sections مترتبة بـ alignment مختلف (<code>FileAlignment</code> عادة 0x200 بدل <code>SectionAlignment</code> 0x1000). عشان تقرا حاجة من الملف بالـ RVA بتاعها، لازم تحولها:</p>
+        <p style="direction:ltr;text-align:center"><code>file_offset = RVA − section.VirtualAddress + section.PointerToRawData</code></p>
+        <c-example file="rva.c">
+#include <stdio.h>
+#include <stdint.h>
+
+typedef struct { char name[9]; uint32_t va, vsize, raw_ptr, raw_size; } Section;
+
+/* Typical layout of a small 64-bit PE */
+static const Section sections[] = {
+    { ".text",  0x1000, 0x1A2C, 0x0400, 0x1C00 },
+    { ".rdata", 0x3000, 0x0B14, 0x2000, 0x0C00 },
+    { ".data",  0x4000, 0x0640, 0x2C00, 0x0200 },
+    { ".bss",   0x5000, 0x0180, 0x0000, 0x0000 },   /* exists only in memory */
+};
+
+static long rva_to_offset(uint32_t rva) {
+    for (size_t i = 0; i < sizeof sections / sizeof sections[0]; i++) {
+        const Section *s = &sections[i];
+        if (rva >= s->va && rva < s->va + s->vsize) {
+            if (rva - s->va >= s->raw_size) {
+                printf("  (RVA 0x%X is in %s but has no file data)\n", rva, s->name);
+                return -1;
+            }
+            return (long)(rva - s->va + s->raw_ptr);
+        }
+    }
+    return -1;
+}
+
+int main(void) {
+    uint32_t rvas[] = { 0x1000, 0x14F0, 0x3020, 0x4010, 0x5004, 0x9000 };
+    for (int i = 0; i < 6; i++) {
+        long off = rva_to_offset(rvas[i]);
+        if (off >= 0) printf("RVA 0x%04X -> file offset 0x%04lX\n", rvas[i], (unsigned long)off);
+        else          printf("RVA 0x%04X -> not in file\n", rvas[i]);
+    }
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">الـ Imports: IAT و INT <span class="tag">import table</span></h3>
+        <p><code>DataDirectory[1]</code> بيشاور على array من <b>IMAGE_IMPORT_DESCRIPTOR</b> (20 byte لكل DLL) بينتهي بـ entry كلها أصفار. كل descriptor فيه:</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Field</th><th>Offset</th><th>المعنى</th></tr></thead>
+            <tbody>
+              <tr><td><code>OriginalFirstThunk</code></td><td>0</td><td>RVA للـ <b>INT</b> (Import Name Table): أسماء الدوال (أو ordinals) — مبتتغيرش</td></tr>
+              <tr><td><code>TimeDateStamp</code> / <code>ForwarderChain</code></td><td>4 / 8</td><td>للـ binding (غالبًا 0)</td></tr>
+              <tr><td><code>Name</code></td><td>12</td><td>RVA لاسم الـ DLL (<code>"KERNEL32.dll"</code>)</td></tr>
+              <tr><td><code>FirstThunk</code></td><td>16</td><td>RVA للـ <b>IAT</b>: في الملف نسخة من الـ INT، و<b>الـ loader بيكتب فوقها العناوين الحقيقية</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>كل call لـ API = قراية من الـ IAT</strong><p>في الكود هتشوف <code>call qword ptr [rip+2F8Ah]</code> — ده indirect call على خانة في الـ IAT. IDA بيكتبها <code>call cs:__imp_CreateFileW</code>. والـ <b>Import Table</b> نفسها أقوى "ملخص" للـ binary: <code>CryptEncrypt</code> + <code>FindFirstFileW</code> = ransomware؟ <code>WriteProcessMemory</code> + <code>CreateRemoteThread</code> = injection؟ <code>InternetOpenUrlA</code> = تواصل شبكة. أداة <b>capa</b> بتعمل التحليل ده أوتوماتيك. وتقنية <b>imphash</b> (hash للـ imports) بتربط samples من نفس العيلة.</p></div></div>
+
+        <h3 class="sub">TLS Callbacks: كود قبل الـ Entry Point <span class="tag">anti-analysis</span></h3>
+        <p><code>DataDirectory[9]</code> (TLS) ممكن يحتوي على <b>callbacks</b> بيتنفذوا <b>قبل</b> الـ entry point. الـ malware بيستخدمها عشان يعمل anti-debugging أو يفك نفسه قبل ما الـ debugger يوقف عند الـ entry. في x64dbg فعّل <b>"Break on TLS Callbacks"</b> من الـ settings، وفي IDA هتلاقيها في قايمة الـ entry points.</p>
+
+        <h3 class="sub">علامات الـ Packing و Entropy <span class="tag">packer detection</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>العلامة</th><th>معناها</th></tr></thead>
+            <tbody>
+              <tr><td>Entropy عالي (&gt; 7.2) في section</td><td>بيانات مضغوطة أو مشفرة</td></tr>
+              <tr><td>Import table فقيرة جدًا (<code>LoadLibrary</code>/<code>GetProcAddress</code>/<code>VirtualAlloc</code>)</td><td>الـ imports الحقيقية بتتحل بعد الفك</td></tr>
+              <tr><td><code>SizeOfRawData = 0</code> و<code>VirtualSize</code> كبير</td><td>section فاضية هتتملا بالكود المفكوك (زي <code>UPX0</code>)</td></tr>
+              <tr><td>Section بصلاحيات <b>W + X</b> مع بعض</td><td>كود هيتكتب وينفذ</td></tr>
+              <tr><td>أسماء sections غريبة (<code>UPX0</code>، <code>.vmp0</code>، <code>.themida</code>، عشوائية)</td><td>packer معروف أو custom</td></tr>
+              <tr><td>Entry point في آخر section مش <code>.text</code></td><td>stub الـ unpacker</td></tr>
+              <tr><td>strings قليلة جدًا</td><td>كل حاجة مضغوطة/مشفرة</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="entropy.c">
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <math.h>
+
+/* Shannon entropy in bits per byte: 0.0 (all same) ... 8.0 (perfectly random) */
+static double entropy(const uint8_t *data, size_t len) {
+    if (len == 0) return 0.0;
+    size_t counts[256] = { 0 };
+    for (size_t i = 0; i < len; i++) counts[data[i]]++;
+    double h = 0.0;
+    for (int b = 0; b < 256; b++) {
+        if (!counts[b]) continue;
+        double p = (double)counts[b] / (double)len;
+        h -= p * log2(p);
+    }
+    return h;
+}
+
+int main(void) {
+    static uint8_t zeros[4096], text[4096], prng[4096];
+    const char *s = "This program cannot be run in DOS mode. kernel32.dll GetProcAddress ";
+    for (size_t i = 0; i < sizeof text; i++) text[i] = (uint8_t)s[i % strlen(s)];
+
+    uint32_t x = 0x12345678;                       /* xorshift32: "encrypted-looking" bytes */
+    for (size_t i = 0; i < sizeof prng; i++) {
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        prng[i] = (uint8_t)x;
+    }
+    printf("zeros   : %.3f bits/byte\n", entropy(zeros, sizeof zeros));
+    printf("text    : %.3f bits/byte\n", entropy(text, sizeof text));
+    printf("random  : %.3f bits/byte  <- looks packed / encrypted\n", entropy(prng, sizeof prng));
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">الأدوات <span class="tag">toolbox</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الأداة</th><th>الاستخدام</th></tr></thead>
+            <tbody>
+              <tr><td><b>PE-bear</b> / <b>CFF Explorer</b></td><td>تصفح كل الـ headers والـ sections والـ imports بصريًا</td></tr>
+              <tr><td><b>pestudio</b></td><td>triage سريع: indicators، imports مشبوهة، strings، resources</td></tr>
+              <tr><td><b>Detect It Easy (DIE)</b></td><td>بيعرف الـ compiler والـ packer والـ entropy</td></tr>
+              <tr><td><b>capa</b> (Mandiant)</td><td>بيستنتج الـ capabilities من الكود (encrypt، inject، persist…)</td></tr>
+              <tr><td><b>pefile</b> (Python)</td><td>scripting وأتمتة parsing الـ PE</td></tr>
+              <tr><td><code>dumpbin</code> / <code>objdump</code> / <code>readelf</code></td><td>سطر الأوامر</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 16</h3></div>
+
+          <quiz id="s16-q1" answer="2">
+            <q>عشان توصل للـ NT headers من أول ملف PE، بتقرا...</q>
+            <o>أول 4 bytes</o>
+            <o>الـ offset الثابت 0x80 دايمًا</o>
+            <o>قيمة <code>e_lfanew</code> (DWORD عند offset <code>0x3C</code>) — دي الـ offset بتاع <code>"PE\0\0"</code></o>
+            <o>آخر الملف</o>
+            <good>الـ <code>e_lfanew</code> بيتغير من ملف للتاني (حسب حجم الـ DOS stub والـ Rich header)، فلازم تقراه.</good>
+            <bad>فيه field في الـ DOS header بيشاور على الـ PE header.</bad>
+          </quiz>
+
+          <quiz id="s16-q2" answer="0">
+            <q>Section: <code>VirtualAddress=0x3000</code>، <code>PointerToRawData=0x2400</code>. الـ RVA <code>0x3150</code> = أنهي file offset؟</q>
+            <o><code>0x2550</code></o>
+            <o><code>0x3150</code></o>
+            <o><code>0x5550</code></o>
+            <o><code>0x0150</code></o>
+            <good><code>0x3150 − 0x3000 + 0x2400 = 0x2550</code>.</good>
+            <bad>طبّق: RVA − VirtualAddress + PointerToRawData.</bad>
+          </quiz>
+
+          <quiz id="s16-q3" answer="3">
+            <q>Section اسمها <code>UPX0</code> بـ <code>SizeOfRawData = 0</code> و<code>VirtualSize = 0x28000</code> وصلاحيات RWX. ده بيقول إيه؟</q>
+            <o>Section بايظة</o>
+            <o>Section للـ resources</o>
+            <o>.bss عادية</o>
+            <o>الـ binary معمول له pack بـ UPX: المساحة دي فاضية في الملف وهتتملا بالكود الأصلي بعد ما الـ stub يفكه</o>
+            <good>UPX بيعمل section فاضية (UPX0) للكود المفكوك، وUPX1 فيها البيانات المضغوطة + الـ stub. <code>upx -d</code> بيفكه — إلا لو اتعدّل عشان يكسر الأداة.</good>
+            <bad>اسم الـ section نفسه دليل، ومع الأحجام والصلاحيات…</bad>
+          </quiz>
+
+          <quiz id="s16-q4" answer="1">
+            <q>إيه الفرق بين الـ INT والـ IAT في الملف قبل التحميل وبعده؟</q>
+            <o>مفيش فرق أبدًا</o>
+            <o>قبل التحميل الاتنين فيهم أسماء/ordinals. بعد التحميل الـ loader بيكتب العناوين الحقيقية للدوال في الـ IAT، والـ INT بيفضل زي ما هو</o>
+            <o>الـ INT فيه عناوين والـ IAT فيه أسماء</o>
+            <o>الـ IAT مش موجود في الملف</o>
+            <good>عشان كده لما بتعمل dump لـ process من الذاكرة (بعد unpacking)، لازم "تصلح" الـ IAT (بأدوات زي Scylla) عشان الملف يتفتح صح في الأدوات.</good>
+            <bad>مين اللي بيملا العناوين الحقيقية، وفين؟</bad>
+          </quiz>
+
+          <quiz id="s16-q5" answer="2">
+            <q>لقيت sample الـ <code>TimeDateStamp</code> بتاعه بيقول 2039. الاستنتاج؟</q>
+            <o>الـ sample من المستقبل</o>
+            <o>الـ compiler بايظ</o>
+            <o>الـ timestamp متزور (عمدًا أو بأداة)، فمتعتمدش عليه في الـ timeline</o>
+            <o>الملف مش PE</o>
+            <good>الـ timestamp سهل التعديل. (وكمان الـ builds الـ reproducible في MSVC بتحط hash مكانه.) قارنه بمصادر تانية: debug directory، الـ Rich header، وتاريخ أول ظهور في VirusTotal.</good>
+            <bad>هل الـ headers ممكن تتعدل بعد الـ build؟</bad>
+          </quiz>
+
+          <challenge id="s16-c1" title="فك صلاحيات الـ sections" level="2">
+            <desc>اكتب دالة بتحول <code>Characteristics</code> لـ string صلاحيات <code>RWX</code> (<code>0x40000000</code>=R، <code>0x80000000</code>=W، <code>0x20000000</code>=X، وحط <code>-</code> لو مش موجودة)، واطبع لكل section اسمها وصلاحياتها، وكلمة <code>SUSPICIOUS</code> لو فيها W وX مع بعض:<br><code>.text    R-X</code><br><code>.rdata   R--</code><br><code>.data    RW-</code><br><code>.packed  RWX  SUSPICIOUS</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+typedef struct { const char *name; uint32_t characteristics; } Sec;
+
+int main(void) {
+    Sec secs[] = {
+        { ".text",   0x60000020 },
+        { ".rdata",  0x40000040 },
+        { ".data",   0xC0000040 },
+        { ".packed", 0xE0000060 },
+    };
+    for (int i = 0; i < 4; i++) {
+        // TODO: build "RWX" string and print
+        (void)secs;
+    }
+    return 0;
+}
+            </starter>
+            <expected>
+.text    R-X
+.rdata   R--
+.data    RW-
+.packed  RWX  SUSPICIOUS
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+typedef struct { const char *name; uint32_t characteristics; } Sec;
+
+#define SCN_MEM_EXECUTE 0x20000000u
+#define SCN_MEM_READ    0x40000000u
+#define SCN_MEM_WRITE   0x80000000u
+
+int main(void) {
+    Sec secs[] = {
+        { ".text",   0x60000020 },
+        { ".rdata",  0x40000040 },
+        { ".data",   0xC0000040 },
+        { ".packed", 0xE0000060 },
+    };
+    for (int i = 0; i < 4; i++) {
+        uint32_t c = secs[i].characteristics;
+        char perm[4] = {
+            (c & SCN_MEM_READ)    ? 'R' : '-',
+            (c & SCN_MEM_WRITE)   ? 'W' : '-',
+            (c & SCN_MEM_EXECUTE) ? 'X' : '-',
+            '\0'
+        };
+        int wx = (c & SCN_MEM_WRITE) && (c & SCN_MEM_EXECUTE);
+        if (wx) printf("%-8s %s  SUSPICIOUS\n", secs[i].name, perm);
+        else    printf("%-8s %s\n", secs[i].name, perm);
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

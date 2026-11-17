@@ -1,0 +1,538 @@
+      <section class="section" id="s10" data-part="الجزء 2 · الذاكرة والبوينترز" data-nav="Structs و Unions" data-icon="🧱" data-keywords="struct union enum typedef padding alignment offsetof packed pragma pack bitfield linked list list_entry containing_record flexible array member tagged union struct recovery ghidra">
+        <div class="section-head">
+          <span class="section-index">10</span>
+          <div>
+            <p class="eyebrow">المرحلة العاشرة</p>
+            <h2>Structs، Unions، Enums — وإعادة بناء الـ Structs من الـ Assembly</h2>
+            <p class="lede">الـ struct = مجموعة fields ورا بعض في الذاكرة. في الـ binary الأسماء بتختفي وبيفضل بس <b>offsets</b>: <code>[rdi+4]</code>، <code>[rdi+24]</code>. أهم مهارة في الـ RE بعد قراية الـ control flow هي إنك <b>تعيد بناء الـ struct</b> من الـ offsets دي. المرحلة دي بتعلمك الـ layout بالـ byte.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">التعريف والاستخدام <span class="tag">struct</span></h3>
+        <c-example file="struct_basics.c">
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+struct process_info {
+    uint32_t pid;
+    uint32_t ppid;
+    char     name[16];
+    int      is_elevated;
+};
+
+typedef struct process_info ProcInfo;            /* shorter name */
+
+static void print_proc(const ProcInfo *p) {      /* pass by pointer: no copy */
+    printf("%-13s pid=%-5u ppid=%-5u %s\n", p->name, p->pid, p->ppid,
+           p->is_elevated ? "[ELEVATED]" : "");
+}
+
+int main(void) {
+    ProcInfo a = { 4321, 1200, "malware.exe", 1 };
+    ProcInfo b = { .pid = 1200, .name = "explorer.exe" };   /* designated init */
+    b.ppid = 900;
+
+    print_proc(&a);
+    print_proc(&b);
+
+    ProcInfo copy = a;                 /* struct assignment copies all bytes */
+    strcpy(copy.name, "copy.exe");
+    printf("original still: %s, sizeof = %zu\n", a.name, sizeof(ProcInfo));
+    return 0;
+}
+        </c-example>
+        <p><code>s.field</code> لما يكون عندك الـ struct نفسه، و<code>p-&gt;field</code> (اختصار <code>(*p).field</code>) لما يكون عندك pointer له. وفي الـ assembly الاتنين بيبقوا <b>العنوان + offset</b>.</p>
+
+        <h3 class="sub">Padding و Alignment <span class="tag">layout</span></h3>
+        <p>الـ CPU بيحب يقرا كل نوع من عنوان <b>مضاعف لحجمه</b> (<code>int</code> من عنوان يقبل القسمة على 4، <code>uint64_t</code> على 8). فالـ compiler بيحط <b>padding</b> (bytes فاضية) بين الـ fields، وفي آخر الـ struct عشان حجمه يبقى مضاعف لأكبر alignment فيه.</p>
+        <c-example file="padding.c">
+#include <stdio.h>
+#include <stddef.h>
+#include <stdint.h>
+
+struct bad {          /* careless ordering */
+    char     a;       /* 1 */
+    uint64_t b;       /* 8, needs 8-alignment */
+    char     c;       /* 1 */
+};
+
+struct good {         /* largest first */
+    uint64_t b;
+    char     a;
+    char     c;
+};
+
+#pragma pack(push, 1) /* no padding: exactly like on-disk formats */
+struct packed {
+    char     a;
+    uint64_t b;
+    char     c;
+};
+#pragma pack(pop)
+
+int main(void) {
+    printf("bad    : size %2zu | a@%zu b@%zu c@%zu\n", sizeof(struct bad),
+           offsetof(struct bad, a), offsetof(struct bad, b), offsetof(struct bad, c));
+    printf("good   : size %2zu | b@%zu a@%zu c@%zu\n", sizeof(struct good),
+           offsetof(struct good, b), offsetof(struct good, a), offsetof(struct good, c));
+    printf("packed : size %2zu | a@%zu b@%zu c@%zu\n", sizeof(struct packed),
+           offsetof(struct packed, a), offsetof(struct packed, b), offsetof(struct packed, c));
+    return 0;
+}
+        </c-example>
+        <div class="mem">
+          <div class="mem-title">struct bad — 24 byte بدل 10</div>
+          <div class="mem-row hl"><span class="addr">+0x00</span><span class="val">a</span><span class="what">char (1 byte)</span></div>
+          <div class="mem-row warn"><span class="addr">+0x01 … +0x07</span><span class="val">pad × 7</span><span class="what">padding عشان b يبدأ على مضاعف 8</span></div>
+          <div class="mem-row hl"><span class="addr">+0x08 … +0x0F</span><span class="val">b</span><span class="what">uint64_t (8 bytes)</span></div>
+          <div class="mem-row hl"><span class="addr">+0x10</span><span class="val">c</span><span class="what">char</span></div>
+          <div class="mem-row warn"><span class="addr">+0x11 … +0x17</span><span class="val">pad × 7</span><span class="what">tail padding: الحجم لازم مضاعف 8 (عشان arrays من الـ struct)</span></div>
+        </div>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>الـ Padding بيكشف الـ layout</strong><p>لو شفت field عند offset 4 حجمه WORD، وبعده field عند offset 24 حجمه QWORD — يبقى فيه حاجة (أو padding) بين 6 و24. لما تبني struct في Ghidra وتلاقي ثغرات بين الـ offsets المعروفة، املاها <code>undefined</code> لحد ما تلاقي كود بيوصلها. وفي الـ file formats (PE headers، protocols) الـ structs بتكون <b>packed</b> — عشان كده لازم تعرّفها بـ <code>#pragma pack(1)</code> وأنت بتكتب parser.</p></div></div>
+
+        <h3 class="sub">إعادة بناء struct من الـ Assembly <span class="tag">struct recovery</span></h3>
+        <div class="side-by-side">
+          <c-example file="implant.c" norun>
+#include <stdint.h>
+
+struct implant {
+    uint32_t id;
+    uint16_t port;
+    char     host[16];
+    uint64_t sleep_ms;
+    struct implant *next;
+};
+
+uint64_t total_sleep(const struct implant *p) {
+    uint64_t sum = 0;
+    while (p) {
+        if (p->port == 443)
+            sum += p->sleep_ms;
+        p = p->next;
+    }
+    return sum;
+}
+          </c-example>
+          <asm-block file="implant.s (gcc -O2)">
+total_sleep:
+        xor     eax, eax              ; sum = 0
+        test    rdi, rdi              ; p == NULL ?
+        je      .L5
+.L4:
+        cmp     WORD PTR [rdi+4], 443 ; p->port   (+4,  2 bytes)
+        jne     .L3
+        add     rax, QWORD PTR [rdi+24] ; p->sleep_ms (+24, 8 bytes)
+.L3:
+        mov     rdi, QWORD PTR [rdi+32] ; p = p->next (+32, ptr)
+        test    rdi, rdi
+        jne     .L4
+        ret
+.L5:
+        ret
+          </asm-block>
+        </div>
+        <p>تخيّل إنك شايف الـ Assembly بس. تستنتج: الـ argument pointer لـ struct فيه: <b>WORD عند +4</b> بيتقارن بـ 443 (port!)، <b>QWORD عند +24</b> بيتجمع (counter أو مدة)، و<b>pointer عند +32</b> بيتحط في نفس الـ register وبيتكرر لحد NULL = <b>linked list</b> و<code>+32</code> هو <code>next</code>. يبقى الحجم على الأقل 40 byte. ده بالظبط اللي بتعمله في Ghidra: <b>Auto Create Structure</b> وبعدين تسمي الـ fields.</p>
+
+        <h3 class="sub">Linked Lists — وأسلوب Windows <span class="tag">LIST_ENTRY</span></h3>
+        <p>Windows (والـ kernel بتاع Linux) بيستخدموا أسلوب ذكي: الـ links (<code>Flink</code>/<code>Blink</code>) struct صغير <b>جوه</b> الـ object، ومنه بترجع لأول الـ object بطرح الـ offset — الـ macro اسمه <code>CONTAINING_RECORD</code>. ده بالظبط إزاي الـ malware بيمشي على قايمة الـ DLLs المحملة في الـ <b>PEB</b> (<code>InLoadOrderModuleList</code>).</p>
+        <c-example file="list_entry.c">
+#include <stdio.h>
+#include <stddef.h>
+
+typedef struct LIST_ENTRY { struct LIST_ENTRY *Flink, *Blink; } LIST_ENTRY;
+
+/* Get the outer struct from a pointer to one of its fields */
+#define CONTAINING_RECORD(addr, type, field) \
+    ((type *)((char *)(addr) - offsetof(type, field)))
+
+typedef struct {
+    unsigned   base;          /* fake "DllBase" */
+    LIST_ENTRY links;         /* NOT at offset 0 on purpose */
+    const char *name;
+} MODULE;
+
+int main(void) {
+    MODULE mods[3] = { { 0x1000, {0}, "ntdll.dll" },
+                       { 0x2000, {0}, "kernel32.dll" },
+                       { 0x3000, {0}, "user32.dll" } };
+    LIST_ENTRY head;
+
+    /* build a circular doubly linked list: head <-> m0 <-> m1 <-> m2 <-> head */
+    LIST_ENTRY *prev = &head;
+    for (int i = 0; i < 3; i++) {
+        prev->Flink = &mods[i].links;
+        mods[i].links.Blink = prev;
+        prev = &mods[i].links;
+    }
+    prev->Flink = &head;
+    head.Blink = prev;
+
+    for (LIST_ENTRY *e = head.Flink; e != &head; e = e->Flink) {
+        MODULE *m = CONTAINING_RECORD(e, MODULE, links);
+        printf("0x%04X  %s\n", m->base, m->name);
+    }
+    printf("offsetof(MODULE, links) = %zu\n", offsetof(MODULE, links));
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>شكلها في الـ disassembly</strong><p>هتلاقي <code>mov rax, [rax]</code> (اتبع <code>Flink</code>) جوه loop بيتقارن بالـ head، وبعدها <code>lea rcx, [rax-10h]</code> أو قراية بـ offset سالب — ده الـ <code>CONTAINING_RECORD</code>. والـ shellcode بيبدأ غالبًا بـ <code>mov rax, gs:[60h]</code> (عنوان الـ PEB على x64) ← <code>Ldr</code> ← قايمة الـ modules، عشان يلاقي <code>kernel32.dll</code> من غير أي import.</p></div></div>
+
+        <h3 class="sub">Unions: نفس الذاكرة بأكتر من شكل <span class="tag">union</span></h3>
+        <p>الـ union كل fields بتاعته <b>بتبدأ من نفس العنوان</b> (offset 0)، وحجمه = حجم أكبر field. استخداماته: قراية نفس البيانات بأكتر من نوع، وعمل <b>tagged union</b> (variant).</p>
+        <c-example file="unions.c">
+#include <stdio.h>
+#include <stdint.h>
+
+typedef union {
+    uint32_t value;
+    uint8_t  bytes[4];
+    struct { uint16_t low, high; } half;
+} Reg32;
+
+typedef enum { VAL_INT, VAL_STR, VAL_IP } ValType;
+
+typedef struct {                 /* tagged union: tag says which member is valid */
+    ValType type;
+    union {
+        int         i;
+        const char *s;
+        uint8_t     ip[4];
+    } as;
+} ConfigValue;
+
+static void show(const ConfigValue *v) {
+    switch (v->type) {
+        case VAL_INT: printf("int  %d\n", v->as.i); break;
+        case VAL_STR: printf("str  %s\n", v->as.s); break;
+        case VAL_IP:  printf("ip   %u.%u.%u.%u\n", v->as.ip[0], v->as.ip[1], v->as.ip[2], v->as.ip[3]); break;
+    }
+}
+
+int main(void) {
+    Reg32 r = { .value = 0xCAFEBABE };
+    printf("value=0x%08X bytes[0]=0x%02X low=0x%04X high=0x%04X size=%zu\n",
+           r.value, r.bytes[0], r.half.low, r.half.high, sizeof r);
+
+    ConfigValue cfg[] = {
+        { VAL_INT, { .i = 60 } },
+        { VAL_STR, { .s = "Mozilla/5.0" } },
+        { VAL_IP,  { .ip = { 192, 168, 56, 101 } } },
+    };
+    for (int i = 0; i < 3; i++) show(&cfg[i]);
+    return 0;
+}
+        </c-example>
+        <div class="callout tip"><span class="ci">💡</span><div><strong>Union = بصمة في Windows</strong><p><code>LARGE_INTEGER</code> هو union بين <code>QuadPart</code> (64-bit) و<code>{LowPart, HighPart}</code>. ولما Ghidra يشوف نفس الـ offset بيتقرا مرة كـ int ومرة كـ pointer حسب قيمة field تاني، فكّر فورًا في <b>tagged union</b> (زي <code>VARIANT</code> في COM).</p></div></div>
+
+        <h3 class="sub">Enums و Bit-fields <span class="tag">enum · flags</span></h3>
+        <c-example file="enums_bits.c">
+#include <stdio.h>
+
+enum state { ST_INIT, ST_CONNECT, ST_BEACON = 10, ST_SLEEP, ST_EXIT = 0xFF };
+
+enum perm {                       /* flag-style enum: combine with | */
+    PERM_READ  = 1 << 0,
+    PERM_WRITE = 1 << 1,
+    PERM_EXEC  = 1 << 2,
+};
+
+struct tcp_flags {                /* bit-fields: layout is compiler-specific */
+    unsigned fin : 1;
+    unsigned syn : 1;
+    unsigned rst : 1;
+    unsigned psh : 1;
+    unsigned ack : 1;
+};
+
+int main(void) {
+    printf("ST_INIT=%d ST_CONNECT=%d ST_BEACON=%d ST_SLEEP=%d ST_EXIT=%d\n",
+           ST_INIT, ST_CONNECT, ST_BEACON, ST_SLEEP, ST_EXIT);
+
+    int p = PERM_READ | PERM_EXEC;
+    printf("perm=%d -> %s%s%s\n", p,
+           (p & PERM_READ) ? "r" : "-", (p & PERM_WRITE) ? "w" : "-", (p & PERM_EXEC) ? "x" : "-");
+
+    struct tcp_flags f = { .syn = 1, .ack = 1 };
+    printf("syn=%u ack=%u rst=%u sizeof=%zu\n", f.syn, f.ack, f.rst, sizeof f);
+    return 0;
+}
+        </c-example>
+        <p>الـ enums بتختفي في الـ binary وبتبقى أرقام عادية. لما تلاقي <code>cmp eax, 0Ah</code> وبعدها <code>cmp eax, 0Bh</code> في state machine، اعمل <b>enum</b> في Ghidra/IDA وطبّقه — الكود هيتقرا <code>if (state == ST_BEACON)</code>. ونفس الكلام للـ Windows constants (IDA بيعرفها بالـ <b>M</b> key / Ghidra بـ <b>Set Equate</b>).</p>
+
+        <h3 class="sub">Flexible Array Member <span class="tag">variable-size records</span></h3>
+        <c-example file="flex_array.c">
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+typedef struct {
+    uint16_t type;
+    uint16_t length;      /* number of bytes in data[] */
+    uint8_t  data[];      /* flexible array member: must be last */
+} Record;
+
+static Record *make_record(uint16_t type, const void *payload, uint16_t len) {
+    Record *r = malloc(sizeof *r + len);      /* header + payload in ONE block */
+    if (!r) return NULL;
+    r->type = type;
+    r->length = len;
+    memcpy(r->data, payload, len);
+    return r;
+}
+
+int main(void) {
+    Record *r = make_record(0x0003, "whoami", 6);
+    if (!r) return 1;
+    printf("sizeof(Record) = %zu (header only)\n", sizeof(Record));
+    printf("type=%u length=%u data=%.*s\n", r->type, r->length, r->length, (char *)r->data);
+    free(r);
+    return 0;
+}
+        </c-example>
+        <p>النمط ده (header فيه طول + بيانات بعده مباشرة) هو شكل <b>أغلب</b> الـ network packets والـ resources والـ configs اللي هتقابلها. TLV (Type-Length-Value) بالظبط.</p>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 10</h3></div>
+
+          <quiz id="s10-q1" answer="2">
+            <q>على x86-64 (alignment طبيعي)، حجم الـ struct ده كام؟<pre-c>
+struct s {
+    char  a;
+    int   b;
+    short c;
+};
+            </pre-c></q>
+            <o>7</o>
+            <o>8</o>
+            <o>12</o>
+            <o>16</o>
+            <good><code>a</code>@0، padding 3، <code>b</code>@4، <code>c</code>@8 (2 bytes)، وبعدين tail padding لحد 12 (مضاعف 4 = alignment الـ int).</good>
+            <bad>كل field بيبدأ على مضاعف حجمه، والحجم الكلي مضاعف لأكبر alignment.</bad>
+          </quiz>
+
+          <quiz id="s10-q2" answer="0">
+            <q>في دالة شفت: <code>mov eax, [rcx+8]</code> و<code>mov rdx, [rcx+10h]</code> و<code>movzx r8d, byte ptr [rcx+18h]</code>. أفضل تخمين للـ struct؟</q>
+            <o>field 4 bytes عند 8، pointer أو 8 bytes عند 0x10، و byte عند 0x18 (وفيه حاجة في أول 8 bytes)</o>
+            <o>array من ints</o>
+            <o>string</o>
+            <o>3 متغيرات global</o>
+            <good>حجم الـ register/الـ PTR بيقولك حجم الـ field، والـ offset مكانه. ده أساس الـ struct recovery.</good>
+            <bad>الـ <code>rcx</code> هو base، والأرقام offsets. إيه حجم كل قراية؟</bad>
+          </quiz>
+
+          <quiz id="s10-q3" answer="3">
+            <q>ليه لازم تستخدم <code>#pragma pack(1)</code> وأنت بتعرّف struct لـ header ملف binary؟</q>
+            <o>عشان الكود يبقى أسرع</o>
+            <o>عشان الـ compiler يقبل الـ arrays</o>
+            <o>إجباري لكل الـ structs</o>
+            <o>عشان الـ compiler ميضيفش padding، فالـ offsets تطابق ترتيب الـ bytes في الملف بالظبط</o>
+            <good>الـ formats على الـ disk/الشبكة مش بتعرف حاجة عن الـ alignment بتاع الـ compiler. أي padding زيادة هيخلي الـ fields تتقرا من مكان غلط.</good>
+            <bad>فكّر في الفرق بين <code>struct bad</code> و<code>struct packed</code> في المثال.</bad>
+          </quiz>
+
+          <quiz id="s10-q4" answer="1">
+            <q>union فيه <code>uint64_t q;</code> و<code>uint8_t b[8];</code> و<code>uint32_t d[2];</code>. حجمه؟</q>
+            <o>20</o>
+            <o>8</o>
+            <o>16</o>
+            <o>4</o>
+            <good>الـ union حجمه = أكبر member (8)، وكلهم بيبدأوا من offset 0.</good>
+            <bad>في الـ union الـ members مش ورا بعض — كلهم فوق بعض.</bad>
+          </quiz>
+
+          <quiz id="s10-q5" answer="2">
+            <q><code>CONTAINING_RECORD(entry, MODULE, links)</code> بيعمل إيه فعليًا؟</q>
+            <o>بيحجز MODULE جديد</o>
+            <o>بيدور على MODULE في list</o>
+            <o>بيطرح <code>offsetof(MODULE, links)</code> من عنوان <code>entry</code> عشان يرجع عنوان أول الـ MODULE</o>
+            <o>بيعمل cast بس</o>
+            <good>عنوان الـ field − offset الـ field = عنوان الـ struct. في الـ asm بيظهر كـ <code>sub</code> أو <code>lea reg, [reg-XX]</code>.</good>
+            <bad>بص على تعريف الـ macro في المثال.</bad>
+          </quiz>
+
+          <challenge id="s10-c1" title="Struct + sort: أكتر process مشبوه" level="2">
+            <desc>عندك array من struct <code>{ char name[16]; unsigned pid; int score; }</code>. رتّبهم بـ <code>qsort</code> حسب <code>score</code> تنازلي، واطبع أعلى 3 بالشكل:<br><code>1. dropper.exe (pid 4021) score 95</code><br><code>2. svch0st.exe (pid 3310) score 88</code><br><code>3. rundll32.exe (pid 2740) score 61</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct { char name[16]; unsigned pid; int score; } Proc;
+
+int by_score_desc(const void *a, const void *b) {
+    // TODO
+    (void)a; (void)b;
+    return 0;
+}
+
+int main(void) {
+    Proc list[] = {
+        { "explorer.exe", 1200, 5 },  { "svch0st.exe", 3310, 88 },
+        { "notepad.exe", 990, 2 },    { "dropper.exe", 4021, 95 },
+        { "rundll32.exe", 2740, 61 }, { "chrome.exe", 5120, 12 },
+    };
+    size_t n = sizeof list / sizeof list[0];
+    qsort(list, n, sizeof list[0], by_score_desc);
+    // TODO: print top 3
+    return 0;
+}
+            </starter>
+            <expected>
+1. dropper.exe (pid 4021) score 95
+2. svch0st.exe (pid 3310) score 88
+3. rundll32.exe (pid 2740) score 61
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct { char name[16]; unsigned pid; int score; } Proc;
+
+int by_score_desc(const void *a, const void *b) {
+    const Proc *x = a, *y = b;
+    return (x->score < y->score) - (x->score > y->score);
+}
+
+int main(void) {
+    Proc list[] = {
+        { "explorer.exe", 1200, 5 },  { "svch0st.exe", 3310, 88 },
+        { "notepad.exe", 990, 2 },    { "dropper.exe", 4021, 95 },
+        { "rundll32.exe", 2740, 61 }, { "chrome.exe", 5120, 12 },
+    };
+    size_t n = sizeof list / sizeof list[0];
+    qsort(list, n, sizeof list[0], by_score_desc);
+    for (size_t i = 0; i < 3; i++)
+        printf("%zu. %s (pid %u) score %d\n", i + 1, list[i].name, list[i].pid, list[i].score);
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s10-c2" title="فك packet بـ packed struct" level="3">
+            <desc>عرّف struct <b>packed</b> لـ header حجمه 12 byte: <code>uint32_t magic; uint8_t version; uint8_t flags; uint16_t cmd; uint32_t length;</code> (little-endian). انسخ أول 12 byte من الـ buffer بـ <code>memcpy</code> واطبع (لاحظ: sizeof لازم يطلع 12):<br><code>size=12 magic=0xC0DEFACE ver=2 flags=0x81 cmd=0x0010 len=5</code><br><code>payload=hello</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+// TODO: packed struct PacketHdr
+
+int main(void) {
+    const uint8_t buf[] = { 0xCE, 0xFA, 0xDE, 0xC0, 0x02, 0x81, 0x10, 0x00,
+                            0x05, 0x00, 0x00, 0x00, 'h', 'e', 'l', 'l', 'o' };
+    // TODO: memcpy into the header, print fields and the payload
+    (void)buf;
+    return 0;
+}
+            </starter>
+            <expected>
+size=12 magic=0xC0DEFACE ver=2 flags=0x81 cmd=0x0010 len=5
+payload=hello
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#pragma pack(push, 1)
+typedef struct {
+    uint32_t magic;
+    uint8_t  version;
+    uint8_t  flags;
+    uint16_t cmd;
+    uint32_t length;
+} PacketHdr;
+#pragma pack(pop)
+
+int main(void) {
+    const uint8_t buf[] = { 0xCE, 0xFA, 0xDE, 0xC0, 0x02, 0x81, 0x10, 0x00,
+                            0x05, 0x00, 0x00, 0x00, 'h', 'e', 'l', 'l', 'o' };
+    PacketHdr h;
+    memcpy(&h, buf, sizeof h);           /* x86 is little-endian, like the data */
+    printf("size=%zu magic=0x%08X ver=%u flags=0x%02X cmd=0x%04X len=%u\n",
+           sizeof h, h.magic, h.version, h.flags, h.cmd, h.length);
+    if (sizeof h + h.length <= sizeof buf)            /* bounds check! */
+        printf("payload=%.*s\n", (int)h.length, (const char *)(buf + sizeof h));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s10-c3" title="Linked list: إضافة وعكس" level="2">
+            <desc>اعمل linked list من struct <code>Node { int v; struct Node *next; }</code> (بـ <code>malloc</code>)، ضيف 1..5 في الآخر، اطبعها، اعكسها في مكانها (من غير nodes جديدة)، اطبعها تاني، وحرر الذاكرة:<br><code>1 -> 2 -> 3 -> 4 -> 5</code><br><code>5 -> 4 -> 3 -> 2 -> 1</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node { int v; struct Node *next; } Node;
+
+void print_list(const Node *n) {
+    for (; n; n = n->next) printf(n->next ? "%d -> " : "%d\n", n->v);
+}
+
+Node *reverse(Node *head) {
+    // TODO
+    return head;
+}
+
+int main(void) {
+    Node *head = NULL, *tail = NULL;
+    // TODO: append 1..5
+    print_list(head);
+    head = reverse(head);
+    print_list(head);
+    // TODO: free all nodes
+    (void)tail;
+    return 0;
+}
+            </starter>
+            <expected>
+1 -> 2 -> 3 -> 4 -> 5
+5 -> 4 -> 3 -> 2 -> 1
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node { int v; struct Node *next; } Node;
+
+void print_list(const Node *n) {
+    for (; n; n = n->next) printf(n->next ? "%d -> " : "%d\n", n->v);
+}
+
+Node *reverse(Node *head) {
+    Node *prev = NULL;
+    while (head) {
+        Node *next = head->next;
+        head->next = prev;
+        prev = head;
+        head = next;
+    }
+    return prev;
+}
+
+int main(void) {
+    Node *head = NULL, *tail = NULL;
+    for (int i = 1; i <= 5; i++) {
+        Node *n = malloc(sizeof *n);
+        if (!n) return 1;
+        n->v = i;
+        n->next = NULL;
+        if (tail) tail->next = n; else head = n;
+        tail = n;
+    }
+    print_list(head);
+    head = reverse(head);
+    print_list(head);
+    while (head) {
+        Node *next = head->next;
+        free(head);
+        head = next;
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

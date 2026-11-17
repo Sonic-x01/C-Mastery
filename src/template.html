@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="كورس C تفاعلي من الصفر للاحتراف، مصمم خصيصًا للـ Reverse Engineering وتحليل الـ Malware: الذاكرة، البوينترز، الـ Assembly، الـ Stack، الـ PE format، مع أكواد قابلة للتشغيل وتمارين ومشاريع.">
+<meta name="theme-color" content="#050811">
+<title>C Mastery for Reverse Engineers — لغة C من الصفر للاحتراف</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet"><style>.reveal{opacity:1!important;transform:none!important}</style></noscript>
+<link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="assets/effects.css">
+<link rel="stylesheet" href="assets/c.css">
+<link rel="stylesheet" href="assets/theme.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23050811'/><text x='50' y='70' font-size='62' font-family='monospace' font-weight='700' text-anchor='middle' fill='%233ddc97'>C</text></svg>">
+<script>try{var t=localStorage.getItem("cMastery.theme");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;}var z=localStorage.getItem("cMastery.size");if(z&&z!=="md"){document.documentElement.setAttribute("data-size",z);}}catch(e){}</script>
+</head>
+<body>
+
+<div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+<div class="scroll-progress" aria-hidden="true"><i id="scrollBar"></i></div>
+
+<header class="topbar">
+  <button class="icon-btn menu-btn" id="menuBtn" aria-label="فتح القائمة" aria-expanded="false">☰</button>
+  <a href="#top" class="brand">
+    <span class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.5 20.5 7.4v9.2L12 21.5 3.5 16.6V7.4L12 2.5Z" stroke="#3ddc97" stroke-width="1.6" fill="rgba(61,220,151,.08)"/>
+        <path d="M14.9 9.3a3.6 3.6 0 1 0 0 5.4" stroke="#ffb454" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </span>
+    <span><b>C Mastery</b><small>للـ Reverse Engineering</small></span>
+  </a>
+  <div class="topbar-spacer"></div>
+  <div class="topbar-actions">
+    <div class="top-progress" title="نسبة إنجاز التمارين">
+      <svg class="ring" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="bgc" cx="12" cy="12" r="10"></circle>
+        <circle class="fgc" id="topRing" cx="12" cy="12" r="10"></circle>
+      </svg>
+      <span><b id="topProgress">0%</b></span>
+    </div>
+    <div class="size-ctl" role="group" aria-label="حجم خط القراءة">
+      <button type="button" data-size-step="-1" aria-label="تصغير الخط" title="تصغير الخط">A−</button>
+      <button type="button" data-size-step="1" aria-label="تكبير الخط" title="تكبير الخط">A+</button>
+    </div>
+    <button class="icon-btn" id="themeBtn" aria-label="تبديل المظهر" title="تبديل المظهر">🌙</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar" aria-label="قائمة المراحل">
+    <div class="sidebar-head">
+      <span class="sidebar-title">خريطة الكورس</span>
+      <button class="icon-btn sidebar-close" id="sidebarClose" aria-label="إغلاق القائمة" style="width:30px;height:30px;font-size:13px">✕</button>
+    </div>
+    <div class="search-wrap">
+      <span class="ic">🔎</span>
+      <input type="search" id="navSearch" placeholder="دور على درس… (pointer, stack, PE)" autocomplete="off" aria-label="بحث في الدروس">
+      <kbd>/</kbd>
+    </div>
+    <nav class="nav" id="nav"></nav>
+
+    <div class="side-card">
+      <div class="ring-wrap">
+        <svg class="progress-ring" viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#3ddc97"/><stop offset="100%" stop-color="#ffb454"/>
+            </linearGradient>
+          </defs>
+          <circle class="bgc" cx="32" cy="32" r="26"></circle>
+          <circle class="fgc" id="sideRing" cx="32" cy="32" r="26"></circle>
+        </svg>
+        <div>
+          <div class="ring-num" id="sidePercent">0%</div>
+          <div class="ring-sub" id="sideCount">0 من 0 تمرين</div>
+        </div>
+      </div>
+      <h4>إنجازك بيتسجل تلقائيًا</h4>
+      <p>كل سؤال وتحدي ومشروع بتخلّصه بيتحفظ في المتصفح، وتكمّل من نفس النقطة في أي وقت.</p>
+      <div class="side-actions">
+        <button class="mini-btn" id="resetProgress">تصفير التقدّم</button>
+        <button class="mini-btn" id="printBtn">طباعة / PDF</button>
+      </div>
+    </div>
+
+    <div class="side-foot">
+      اختصارات: <kbd>/</kbd> بحث · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> تشغيل<br>
+      C17 · gcc 15.2 · x86-64
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <main id="top">
+    <div class="wrap">
+
+      <section class="hero" id="start">
+        <canvas id="hexRain" aria-hidden="true"></canvas>
+        <div class="hero-grid">
+          <div>
+            <span class="badge"><span class="pulse"></span> C17 · x86-64 · مصمم لمحللي الـ Malware</span>
+            <h1>اتعلم <span class="grad">C</span> زي ما<br>الـ CPU شايفها</h1>
+            <p class="lead">
+              كورس C كامل من الصفر للاحتراف، بس بعين <b>الـ Reverse Engineer</b>: مش بس تكتب الكود،
+              لكن تفهم هو بيتحوّل لإيه في الذاكرة وفي الـ <b>Assembly</b>. كل مثال تقدر تشغّله، وتشوف الـ
+              Assembly بتاعه بضغطة زرار، بـ <code>-O0</code> و<code>-O2</code>، زي ما هتقابله في IDA وGhidra بالظبط.
+            </p>
+            <div class="hero-cta">
+              <a href="#s01" class="btn btn-primary">🚀 ابدأ من أول درس</a>
+              <a href="#roadmap" class="btn btn-ghost">🗺️ خريطة الطريق</a>
+            </div>
+            <div class="hero-stats">
+              <div class="stat"><b data-count="{{N_SECTIONS}}">{{N_SECTIONS}}</b><span>مرحلة</span></div>
+              <div class="stat"><b data-count="{{N_QUIZ}}">{{N_QUIZ}}</b><span>سؤال تفاعلي</span></div>
+              <div class="stat"><b data-count="{{N_CH}}">{{N_CH}}</b><span>تحدي كود بيتصحح</span></div>
+              <div class="stat"><b data-count="{{N_RUN}}">{{N_RUN}}</b><span>مثال قابل للتشغيل</span></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="terminal" aria-label="مثال كود C والـ assembly بتاعه">
+              <div class="term-bar">
+                <div class="dots"><i></i><i></i><i></i></div>
+                <span>check.c → objdump -d -M intel</span>
+              </div>
+              <div class="term-body" dir="ltr">
+                <span class="ln"><span class="tok-builtin">int</span> <span class="tok-fn">check</span>(<span class="tok-builtin">int</span> key) {</span>
+                <span class="ln">    <span class="tok-kw">return</span> (key ^ <span class="tok-num">0x5A</span>) == <span class="tok-num">0x1B</span>;</span>
+                <span class="ln">}</span>
+                <span class="ln"></span>
+                <span class="ln"><span class="tok-com">; x86-64 gcc 15.2 -O2</span></span>
+                <span class="ln"><span class="tok-fn">check:</span></span>
+                <span class="ln">  <span class="tok-kw">xor</span>   <span class="tok-self">eax</span>, <span class="tok-self">eax</span></span>
+                <span class="ln">  <span class="tok-kw">cmp</span>   <span class="tok-self">edi</span>, <span class="tok-num">65</span></span>
+                <span class="ln">  <span class="tok-kw">sete</span>  <span class="tok-self">al</span></span>
+                <span class="ln">  <span class="tok-kw">ret</span></span>
+                <span class="ln term-out">&gt; الـ XOR اختفى! الـ compiler حلّها لوحده:</span>
+                <span class="ln term-out">&gt; 0x1B ^ 0x5A = 0x41 = 65 = 'A' ✓<span class="term-cursor"></span></span>
+              </div>
+            </div>
+            <div class="term-caption"><span class="dot"></span> هدفك في الآخر: تقرا الـ Assembly وترجّعه C في دماغك</div>
+          </div>
+        </div>
+      </section>
+
+{{SECTIONS}}
+
+      <footer>
+        <div>© <span id="year"></span> C Mastery for Reverse Engineers — كورس تعليمي تفاعلي. الأكواد بتتشغّل عبر <a href="https://godbolt.org" target="_blank" rel="noopener">Compiler Explorer</a>.</div>
+        <div class="f-links">
+          <a href="#cheat">Cheat Sheet</a>
+          <a href="#sources">المصادر</a>
+          <a href="https://en.cppreference.com/w/c" target="_blank" rel="noopener">cppreference</a>
+        </div>
+      </footer>
+    </div>
+  </main>
+</div>
+
+<canvas id="confetti" aria-hidden="true"></canvas>
+<div class="toast" id="toast" role="status" aria-live="polite"><span class="t-ico">✓</span><span id="toastTxt"></span></div>
+
+<script src="assets/app.js" defer></script>
+<script src="assets/effects.js" defer></script>
+</body>
+</html>

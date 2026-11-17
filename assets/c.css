@@ -1,0 +1,127 @@
+/* ============================================================
+   C Mastery — components specific to the C / RE course
+   (assembly viewer, memory diagrams, hex dumps, converter, parts)
+   ============================================================ */
+
+/* ---------- Sidebar part headers ---------- */
+.nav-part{
+  font:700 10px var(--mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--accent-2);
+  padding:14px 10px 5px;opacity:.85;
+}
+.nav-part:first-child{padding-top:4px}
+.nav-part.hide{display:none}
+
+/* ---------- Run output extras ---------- */
+.run-out .ro-exit{margin-inline-start:auto;color:#ffb454;letter-spacing:.5px;text-transform:none}
+.run-out pre.warn,.console pre.warn{color:#ffd59a}
+.baked{display:none}
+
+/* ---------- ASM button + panel ---------- */
+.code-tools .asm-mini{color:#ffcf8a;border-color:rgba(255,180,84,.32);background:rgba(255,180,84,.08)}
+.code-tools .asm-mini:hover{background:rgba(255,180,84,.16)}
+.btn-asm{border-color:rgba(255,180,84,.4)!important;color:#ffcf8a!important}
+
+.asm-panel{border-top:1px solid rgba(255,180,84,.18);background:#07090f;direction:ltr}
+.challenge > .asm-panel{border:1px solid rgba(255,180,84,.22);border-radius:9px;margin-top:11px;overflow:hidden}
+.asm-head{
+  display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:8px 14px;
+  border-bottom:1px solid rgba(255,255,255,.06);font:10px var(--mono);color:#b98a4a;letter-spacing:.6px;
+}
+.opt-switch{display:flex;gap:4px;margin-inline-start:auto}
+.opt-switch button{
+  font:600 10.5px var(--mono);padding:3px 9px;border-radius:6px;cursor:pointer;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#93a3c2;
+}
+.opt-switch button.on{background:rgba(255,180,84,.16);border-color:rgba(255,180,84,.5);color:#ffcf8a}
+.asm-pre{margin:0;padding:12px 16px;max-height:420px;overflow:auto;font:12.2px/1.7 var(--mono);color:#cfd8ea;white-space:pre}
+.asm-note{padding:7px 14px 10px;font:11px var(--font);color:#6b7c9c;direction:rtl;border-top:1px dashed rgba(255,255,255,.05)}
+
+/* Static asm blocks inside lessons */
+.code-block.asm .code-head .filename::before{content:"⚙ ";color:#ffb454}
+.side-by-side{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0;direction:ltr}
+.side-by-side > .code-block{margin:0}
+@media (max-width:900px){.side-by-side{grid-template-columns:1fr}}
+
+/* ---------- RE lens callout ---------- */
+.callout.re{border-inline-start-color:#ffb454;background:linear-gradient(90deg,rgba(255,180,84,.08),transparent)}
+.callout.re strong{color:#ffb454}
+.callout.re strong::before{content:"🔬 "}
+
+/* ---------- Memory / stack diagrams ---------- */
+.mem{
+  direction:ltr;margin:18px 0;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  background:var(--code-bg);font:12px/1.5 var(--mono);color:#cfd8ea;
+}
+.mem-title{padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.07);color:#8aa0c4;font-size:10.5px;letter-spacing:1px;text-transform:uppercase}
+.mem-row{display:grid;grid-template-columns:150px 1fr 1.3fr;border-bottom:1px solid rgba(255,255,255,.045)}
+.mem-row:last-child{border-bottom:0}
+.mem-row > span{padding:7px 12px}
+.mem-row .addr{color:#6b84a8;border-inline-end:1px solid rgba(255,255,255,.05)}
+.mem-row .val{color:#ffd580;border-inline-end:1px solid rgba(255,255,255,.05)}
+.mem-row .what{color:#9fb0cc;font-family:var(--font);direction:rtl;text-align:right}
+.mem-row.hl{background:rgba(61,220,151,.07)}
+.mem-row.hl .val{color:#8ff0c0}
+.mem-row.warn{background:rgba(255,107,129,.08)}
+.mem-row.warn .val{color:#ff9aa8}
+.mem-row.ret{background:rgba(255,180,84,.08)}
+.mem-row.ret .val{color:#ffcf8a}
+.mem-cap{padding:7px 14px;font:11px var(--font);color:#6b7c9c;direction:rtl;border-top:1px dashed rgba(255,255,255,.07)}
+@media (max-width:640px){.mem-row{grid-template-columns:100px 1fr}.mem-row .what{grid-column:1 / -1;border-top:1px dashed rgba(255,255,255,.04)}}
+
+/* ---------- Hex dump ---------- */
+.hexdump{direction:ltr;margin:16px 0;padding:12px 16px;border-radius:12px;background:var(--code-bg);border:1px solid var(--line);
+  font:12.2px/1.75 var(--mono);color:#cfd8ea;overflow-x:auto;white-space:pre}
+.hexdump .o{color:#6b84a8}.hexdump .h{color:#ffd580}.hexdump .a{color:#8ff0c0}.hexdump .m{background:rgba(255,180,84,.18);border-radius:3px}
+
+/* ---------- Pipeline (compilation stages) ---------- */
+.pipeline{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:18px 0;direction:ltr}
+.pipeline .stage{flex:1 1 140px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel)}
+.pipeline .stage b{display:block;font:700 12px var(--mono);color:var(--accent)}
+.pipeline .stage code{font-size:11px}
+.pipeline .stage small{display:block;color:var(--muted);font-family:var(--font);direction:rtl;text-align:right;margin-top:4px;font-size:11.5px;line-height:1.6}
+.pipeline .arrow{align-self:center;color:var(--dim);font:700 16px var(--mono)}
+
+/* ---------- Base converter ---------- */
+.conv{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--panel);margin:18px 0}
+.conv-inputs{display:flex;gap:10px;flex-wrap:wrap;direction:ltr}
+.conv-inputs input,.conv-inputs select{
+  font:14px var(--mono);padding:9px 12px;border-radius:10px;border:1px solid var(--line-strong);
+  background:var(--solid);color:var(--text);min-width:0
+}
+.conv-inputs input{flex:1 1 220px}
+.bc-row{display:grid;grid-template-columns:230px 1fr;gap:10px;padding:6px 2px;border-bottom:1px dashed var(--line);align-items:center}
+.bc-row:last-child{border-bottom:0}
+.bc-row span{color:var(--muted);font-size:12.5px}
+.bc-row code{direction:ltr;text-align:left;font-size:13px;word-break:break-all}
+.bc-warn{margin-top:8px;color:var(--orange);font-size:12.5px}
+.bc-err{color:var(--red);font-size:12.5px;margin-top:8px}
+#bcOut{margin-top:12px}
+@media (max-width:640px){.bc-row{grid-template-columns:1fr}}
+
+/* ---------- Projects ---------- */
+.project.done{border-color:rgba(61,220,151,.45)}
+.project.done .project-head h4::after{content:" ✓";color:var(--green)}
+.project .btn-done{margin-top:12px}
+.milestones{counter-reset:ms;list-style:none;padding:0;margin:12px 0}
+.milestones li{counter-increment:ms;position:relative;padding:6px 38px 6px 0;color:var(--muted)}
+.milestones li::before{
+  content:counter(ms);position:absolute;right:0;top:6px;width:24px;height:24px;border-radius:7px;
+  display:grid;place-items:center;font:700 11px var(--mono);color:var(--accent);
+  background:rgba(61,220,151,.1);border:1px solid rgba(61,220,151,.3)
+}
+.milestones li b{color:var(--text)}
+
+/* ---------- Level badges ---------- */
+.lvl{font:700 10px var(--mono);padding:2px 8px;border-radius:999px;border:1px solid var(--line);margin-inline-start:6px;vertical-align:middle}
+.lvl.l1{color:#8ff0c0;border-color:rgba(61,220,151,.35)}
+.lvl.l2{color:#ffcf8a;border-color:rgba(255,180,84,.4)}
+.lvl.l3{color:#ff9aa8;border-color:rgba(255,107,129,.4)}
+
+/* light theme tweaks */
+html[data-theme="light"] .nav-part{color:#b45309}
+html[data-theme="light"] .conv-inputs input,html[data-theme="light"] .conv-inputs select{background:#fff}
+
+@media print{
+  .asm-mini,.opt-switch,.conv{display:none!important}
+  .asm-panel{display:none!important}
+}

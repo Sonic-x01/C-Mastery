@@ -1,0 +1,213 @@
+      <section class="section" id="cheat" data-part="الجزء 4 · التطبيق والمرجع" data-nav="Cheat Sheet والمصادر" data-icon="📋" data-keywords="cheat sheet reference summary sources books tools next steps roadmap ghidra ida x64dbg flare-vm remnux">
+        <div class="section-head">
+          <span class="section-index">19</span>
+          <div>
+            <p class="eyebrow">المرجع السريع</p>
+            <h2>Cheat Sheet + المصادر + الخطوة الجاية</h2>
+            <p class="lede">كل اللي محتاج تفتكره في مكان واحد وقابل للبحث. ارجعله وأنت بتحلل.</p>
+          </div>
+        </div>
+
+        <div class="cheat-search">
+          <span class="ic">🔎</span>
+          <input type="search" id="cheatSearch" placeholder="ابحث… (printf, malloc, lea, PEB, idiv, RWX)" autocomplete="off" aria-label="بحث في المرجع">
+        </div>
+
+        <div class="cheat-grid" id="cheatGrid">
+          <div class="cheat-card">
+            <h4>الأنواع (x64)</h4>
+            <ul>
+              <li><code>char</code> 1 · <code>short</code> 2 · <code>int</code> 4<span>كل المنصات</span></li>
+              <li><code>long</code> 8 Linux / 4 Windows<span>LP64 vs LLP64</span></li>
+              <li><code>long long</code> · pointer · <code>size_t</code> = 8<span></span></li>
+              <li><code>uint8_t … uint64_t</code><span>stdint.h — للـ formats</span></li>
+              <li><code>BYTE WORD DWORD QWORD</code><span>1 2 4 8 — Windows</span></li>
+              <li><code>BOOL</code> = <code>int</code><span>مش bool!</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>printf</h4>
+            <ul>
+              <li><code>%d %u %x %X %o</code><span>int / unsigned / hex / octal</span></li>
+              <li><code>%ld %lld %llx</code><span>long / long long</span></li>
+              <li><code>%zu</code><span>size_t</span></li>
+              <li><code>%td</code><span>ptrdiff_t</span></li>
+              <li><code>%p</code><span>pointer (cast لـ void *)</span></li>
+              <li><code>%08X</code> <code>%-10s</code> <code>%.*s</code><span>عرض / محاذاة / طول متغير</span></li>
+              <li><code>"%" PRIx64</code><span>inttypes.h</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>Bitwise</h4>
+            <ul>
+              <li><code>x |= (1u &lt;&lt; n)</code><span>set</span></li>
+              <li><code>x &amp;= ~(1u &lt;&lt; n)</code><span>clear</span></li>
+              <li><code>x ^= (1u &lt;&lt; n)</code><span>toggle</span></li>
+              <li><code>(x &gt;&gt; n) &amp; 1</code><span>test</span></li>
+              <li><code>(x &lt;&lt; n) | (x &gt;&gt; (32 - n))</code><span>rol (n ≠ 0)</span></li>
+              <li><code>a ^ k ^ k == a</code><span>XOR بيعكس نفسه</span></li>
+              <li><code>x &amp; (x - 1)</code><span>امسح أقل bit</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>Pointers</h4>
+            <ul>
+              <li><code>&amp;x</code> ↔ <code>lea</code><span>العنوان</span></li>
+              <li><code>*p</code> ↔ <code>mov r, [p]</code><span>القيمة</span></li>
+              <li><code>a[i] == *(a + i)</code><span>scaled بالنوع</span></li>
+              <li><code>p-&gt;f</code> ↔ <code>[p + offset]</code><span>struct field</span></li>
+              <li><code>int (*f)(int)</code><span>function pointer</span></li>
+              <li><code>int *a[3]</code> vs <code>int (*a)[3]</code><span>array of ptrs / ptr to array</span></li>
+              <li><code>CONTAINING_RECORD</code><span>field ← struct</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>الذاكرة</h4>
+            <ul>
+              <li><code>malloc / calloc / realloc / free</code><span>دايمًا check NULL</span></li>
+              <li><code>tmp = realloc(p, n)</code><span>مش p = realloc</span></li>
+              <li><code>count &gt; SIZE_MAX / size</code><span>check overflow الضرب</span></li>
+              <li><code>.text .rodata .data .bss</code><span>RX / R / RW / RW (zero)</span></li>
+              <li>Stack ↓ · Heap ↑<span>الاتجاهات</span></li>
+              <li><code>VirtualAlloc(…, 0x3000, 0x40)</code><span>RWX = 🚩</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>strings &amp; memory</h4>
+            <ul>
+              <li><code>snprintf(buf, sizeof buf, …)</code><span>الأأمن للنسخ</span></li>
+              <li><code>strcpy strcat sprintf gets</code><span>❌ خطر</span></li>
+              <li><code>strncpy</code><span>⚠ ممكن من غير '\0'</span></li>
+              <li><code>strcmp(a, b) == 0</code><span>مش ==</span></li>
+              <li><code>memcpy / memmove / memset / memcmp</code><span>bytes</span></li>
+              <li><code>line[strcspn(line, "\r\n")] = 0</code><span>شيل newline</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>Registers &amp; Calls</h4>
+            <ul>
+              <li>Linux: <code>rdi rsi rdx rcx r8 r9</code><span>args</span></li>
+              <li>Windows: <code>rcx rdx r8 r9</code> + 32B shadow<span>args</span></li>
+              <li><code>rax</code><span>return</span></li>
+              <li><code>rsp</code> · <code>rbp</code> · <code>rip</code><span>stack / frame / pc</span></li>
+              <li>callee-saved: <code>rbx rbp r12–r15</code> (+<code>rdi rsi</code> Win)<span></span></li>
+              <li><code>mov eax, …</code><span>بيصفّر أعلى 32 bit</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>Jumps</h4>
+            <ul>
+              <li><code>je/jz</code> · <code>jne/jnz</code><span>== / !=</span></li>
+              <li><code>jl jle jg jge</code><span>signed</span></li>
+              <li><code>jb jbe ja jae</code><span>unsigned</span></li>
+              <li><code>test eax, eax; jz</code><span>if (!x)</span></li>
+              <li>قفزة لورا<span>= loop</span></li>
+              <li><code>cmp N; ja; jmp [tbl+r*8]</code><span>switch</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>Compiler idioms</h4>
+            <ul>
+              <li><code>xor eax, eax</code><span>= 0</span></li>
+              <li><code>lea eax, [rdi+rdi*4]</code><span>× 5</span></li>
+              <li><code>imul magic; shr N</code><span>÷ ثابت: 2^N/magic</span></li>
+              <li><code>0xCCCCCCCD</code><span>÷ 10</span></li>
+              <li><code>and eax, 0Fh</code><span>% 16 (unsigned)</span></li>
+              <li><code>cmovl / setg</code><span>ternary / bool</span></li>
+              <li><code>movsx / movzx</code><span>signed / unsigned</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>PE في دقيقة</h4>
+            <ul>
+              <li><code>MZ</code> @0 · <code>e_lfanew</code> @0x3C<span>DOS header</span></li>
+              <li><code>PE\0\0</code> + FILE_HEADER (20)<span>Machine 0x8664</span></li>
+              <li>OPTIONAL_HEADER64 (240)<span>Magic 0x20B</span></li>
+              <li>Entry @+16 · ImageBase @+24 · Dirs @+112<span>offsets</span></li>
+              <li>Section header = 40 bytes<span></span></li>
+              <li><code>off = rva - VA + RawPtr</code><span>RVA → file</span></li>
+              <li>Dir[1] Imports · [9] TLS · [2] Resources<span></span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>Windows أرقام مهمة</h4>
+            <ul>
+              <li><code>0x40</code> PAGE_EXECUTE_READWRITE<span>RWX</span></li>
+              <li><code>0x3000</code> COMMIT | RESERVE<span>VirtualAlloc</span></li>
+              <li><code>gs:[60h]</code> PEB (x64) · <code>fs:[30h]</code> (x86)<span></span></li>
+              <li><code>PEB+2</code> BeingDebugged<span>anti-debug</span></li>
+              <li><code>183</code> ERROR_ALREADY_EXISTS<span>mutex</span></li>
+              <li><code>0xC0000005</code> Access Violation<span>crash</span></li>
+              <li><code>INVALID_HANDLE_VALUE</code> = -1<span>CreateFile</span></li>
+            </ul>
+          </div>
+          <div class="cheat-card">
+            <h4>gcc / أدوات</h4>
+            <ul>
+              <li><code>-std=c17 -Wall -Wextra -g</code><span>دايمًا</span></li>
+              <li><code>-O0</code> / <code>-O2</code> / <code>-s</code><span>debug / release / strip</span></li>
+              <li><code>-S -masm=intel</code><span>Assembly</span></li>
+              <li><code>-fsanitize=address,undefined</code><span>bugs</span></li>
+              <li><code>objdump -d -M intel</code><span>disassemble</span></li>
+              <li><code>nm</code> · <code>readelf</code> · <code>strings</code> · <code>checksec</code><span></span></li>
+            </ul>
+          </div>
+        </div>
+
+        <h3 class="sub" id="sources">المصادر <span class="tag">curated</span></h3>
+        <div class="sources">
+          <a class="source" href="https://en.cppreference.com/w/c" target="_blank" rel="noopener"><span class="sico">📘</span><span><b>cppreference — C</b><span>المرجع الأدق لكل دالة ونوع في C.</span><span class="url">en.cppreference.com/w/c</span></span></a>
+          <a class="source" href="https://godbolt.org" target="_blank" rel="noopener"><span class="sico">⚙️</span><span><b>Compiler Explorer</b><span>نفس المحرك اللي بيشغّل أمثلة الكورس — جرّب أي compiler.</span><span class="url">godbolt.org</span></span></a>
+          <a class="source" href="https://gustedt.gitlabpages.inria.fr/modern-c/" target="_blank" rel="noopener"><span class="sico">📗</span><span><b>Modern C — Jens Gustedt</b><span>كتاب C حديث ومجاني من عضو في لجنة المعيار.</span><span class="url">gustedt.gitlabpages.inria.fr/modern-c</span></span></a>
+          <a class="source" href="https://ghidra-sre.org/" target="_blank" rel="noopener"><span class="sico">🐉</span><span><b>Ghidra</b><span>Disassembler + decompiler مجاني ومفتوح المصدر.</span><span class="url">ghidra-sre.org</span></span></a>
+          <a class="source" href="https://x64dbg.com/" target="_blank" rel="noopener"><span class="sico">🐞</span><span><b>x64dbg</b><span>Debugger مجاني ومفتوح المصدر لـ Windows.</span><span class="url">x64dbg.com</span></span></a>
+          <a class="source" href="https://hex-rays.com/ida-free" target="_blank" rel="noopener"><span class="sico">🔍</span><span><b>IDA Free</b><span>المعيار في الصناعة — نسخة مجانية للاستخدام الشخصي.</span><span class="url">hex-rays.com/ida-free</span></span></a>
+          <a class="source" href="https://github.com/mandiant/flare-vm" target="_blank" rel="noopener"><span class="sico">🧪</span><span><b>FLARE-VM</b><span>تحويل VM ويندوز لمعمل تحليل كامل.</span><span class="url">github.com/mandiant/flare-vm</span></span></a>
+          <a class="source" href="https://remnux.org/" target="_blank" rel="noopener"><span class="sico">🐧</span><span><b>REMnux</b><span>توزيعة Linux لتحليل الـ malware.</span><span class="url">remnux.org</span></span></a>
+          <a class="source" href="https://github.com/mandiant/capa" target="_blank" rel="noopener"><span class="sico">🧭</span><span><b>capa</b><span>استخراج الـ capabilities من الـ binaries أوتوماتيك.</span><span class="url">github.com/mandiant/capa</span></span></a>
+          <a class="source" href="https://crackmes.one/" target="_blank" rel="noopener"><span class="sico">🔐</span><span><b>crackmes.one</b><span>تحديات RE مرتبة بالصعوبة.</span><span class="url">crackmes.one</span></span></a>
+          <a class="source" href="https://flare-on.com/" target="_blank" rel="noopener"><span class="sico">🔥</span><span><b>Flare-On</b><span>مسابقة RE السنوية — والتحديات والحلول القديمة كنز.</span><span class="url">flare-on.com</span></span></a>
+          <a class="source" href="https://bazaar.abuse.ch/" target="_blank" rel="noopener"><span class="sico">🦠</span><span><b>MalwareBazaar</b><span>Samples حقيقية للتحليل — جوه VM معزولة بس.</span><span class="url">bazaar.abuse.ch</span></span></a>
+          <a class="source" href="https://attack.mitre.org/" target="_blank" rel="noopener"><span class="sico">🗺️</span><span><b>MITRE ATT&amp;CK</b><span>تصنيف التقنيات لكتابة reports احترافية.</span><span class="url">attack.mitre.org</span></span></a>
+          <a class="source" href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format" target="_blank" rel="noopener"><span class="sico">📄</span><span><b>PE Format (Microsoft)</b><span>التوثيق الرسمي لصيغة PE.</span><span class="url">learn.microsoft.com</span></span></a>
+        </div>
+
+        <h3 class="sub">كتب تستحق وقتك <span class="tag">ترتيب مقترح</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الكتاب</th><th>ليه</th></tr></thead>
+            <tbody>
+              <tr><td><b>C Programming: A Modern Approach</b> — K. N. King</td><td>أشمل كتاب C تعليمي</td></tr>
+              <tr><td><b>The C Programming Language</b> — Kernighan &amp; Ritchie</td><td>الكلاسيكي — قصير ودقيق</td></tr>
+              <tr><td><b>Computer Systems: A Programmer's Perspective</b> — Bryant &amp; O'Hallaron</td><td>الذاكرة، الـ Assembly، الـ linking — أساس الـ RE</td></tr>
+              <tr><td><b>Practical Malware Analysis</b> — Sikorski &amp; Honig</td><td>الكتاب المرجعي لتحليل الـ malware (أدواته قديمة، بس المنهجية ذهبية)</td></tr>
+              <tr><td><b>Practical Reverse Engineering</b> — Dang et al.</td><td>x86/x64، Windows kernel، obfuscation</td></tr>
+              <tr><td><b>Windows Internals</b> — Yosifovich, Russinovich et al.</td><td>إزاي Windows بيشتغل من جوه</td></tr>
+              <tr><td><b>Evasive Malware</b> — Kyle Cucci</td><td>تقنيات التخفي والـ anti-analysis الحديثة</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">خريطة الطريق بعد الكورس <span class="tag">next</span></h3>
+        <div class="steps">
+          <div class="step"><span class="n">01</span><div><h4>ثبّت المعمل</h4><p>VM ويندوز بـ FLARE-VM + VM REMnux، network معزولة (host-only)، وsnapshots نضيفة. <b>قبل أي sample</b>.</p></div></div>
+          <div class="step"><span class="n">02</span><div><h4>اكسر binaries إنت كاتبها</h4><p>كل مثال وتحدي في الكورس: اعمله compile بـ <code>-O2 -s</code> وافتحه في Ghidra من غير ما تبص على الكود. ده أسرع طريق للمهارة.</p></div></div>
+          <div class="step"><span class="n">03</span><div><h4>crackmes ← Flare-On</h4><p>ابدأ بالسهل على crackmes.one، وبعدين حل تحديات Flare-On القديمة واقرا الـ write-ups.</p></div></div>
+          <div class="step"><span class="n">04</span><div><h4>Samples حقيقية + reports</h4><p>حلل عائلات قديمة معروفة واكتب report (IOCs، capabilities، ATT&amp;CK) وقارنه بالـ reports المنشورة.</p></div></div>
+          <div class="step"><span class="n">05</span><div><h4>اتعمق</h4><p>C++ RE (vtables، STL)، Windows internals، unpacking، الـ kernel drivers، وscripting لـ Ghidra/IDA بـ Python.</p></div></div>
+        </div>
+
+        <div class="final-cta">
+          <h3>وصلت لآخر الرحلة 🎯</h3>
+          <p>دلوقتي عندك C من الصفر لحد الـ Assembly والـ PE والثغرات. الفرق بينك وبين المحترف دلوقتي مش "معلومات أكتر" — ده <b>ساعات تطبيق</b>: اكسر binaries كل يوم.</p>
+          <div class="final-stats">
+            <div><b id="finalSolved">0</b> تمرين محلول</div>
+            <div><b id="finalTotal">0</b> إجمالي التمارين</div>
+            <div><b id="finalSections">0</b> مرحلة مكتملة</div>
+          </div>
+          <div style="margin-top:22px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+            <a href="#s18" class="btn btn-primary">🛠️ ابدأ مشروع</a>
+            <a href="#start" class="btn btn-ghost">↑ راجع من الأول</a>
+          </div>
+        </div>
+      </section>

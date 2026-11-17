@@ -1,0 +1,470 @@
+      <section class="section" id="s08" data-part="الجزء 2 · الذاكرة والبوينترز" data-nav="Pointers متقدمة" data-icon="🧭" data-keywords="pointer arithmetic ptrdiff void pointer generic qsort function pointer callback dispatch table indirect call vtable getprocaddress loadlibrary typedef complex declarations array of pointers">
+        <div class="section-head">
+          <span class="section-index">08</span>
+          <div>
+            <p class="eyebrow">المرحلة الثامنة</p>
+            <h2>Pointers متقدمة: void*، Function Pointers، والـ Indirect Calls</h2>
+            <p class="lede">الـ malware المحترف نادرًا ما بينادي الدوال بأسمائها. بيحل عناوينها وقت التشغيل ويخزنها في <b>function pointers</b>، وبيعمل <b>جداول</b> منها. في الـ disassembly ده بيظهر <code>call rax</code> أو <code>call qword ptr [rbx+18h]</code> — ولو مش فاهم الـ function pointers، الـ indirect calls دي هتبقى حيطة سد.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">Pointer Arithmetic بالتفصيل <span class="tag">arithmetic</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>العملية</th><th>المعنى</th><th>النتيجة</th></tr></thead>
+            <tbody>
+              <tr><td><code>p + n</code> / <code>p - n</code></td><td>تحرك n <b>عناصر</b></td><td>pointer (العنوان ± n×sizeof)</td></tr>
+              <tr><td><code>p++</code> / <code>p--</code></td><td>العنصر اللي بعده / قبله</td><td>pointer</td></tr>
+              <tr><td><code>q - p</code></td><td>عدد العناصر بينهم (لازم نفس الـ array)</td><td><code>ptrdiff_t</code> (<code>%td</code>)</td></tr>
+              <tr><td><code>p &lt; q</code>، <code>p == q</code></td><td>مقارنة مواقع (نفس الـ array)</td><td>0 / 1</td></tr>
+              <tr><td><code>p + q</code>، <code>p * 2</code></td><td colspan="2">❌ مش مسموح (معندوش معنى)</td></tr>
+              <tr><td><code>*p++</code></td><td>اقرا <code>*p</code> وبعدين حرك <code>p</code> (الـ <code>++</code> على الـ pointer)</td><td>القيمة</td></tr>
+              <tr><td><code>(*p)++</code></td><td>زوّد القيمة نفسها</td><td>القيمة القديمة</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <c-example file="ptr_walk.c">
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    const uint8_t packet[] = { 0xAA, 0x03, 'G', 'E', 'T', 0x01, 0x02, 0x55 };
+    const uint8_t *p   = packet;
+    const uint8_t *end = packet + sizeof packet;   /* one past the last: valid to compare */
+
+    uint8_t magic = *p++;              /* read then advance */
+    uint8_t len   = *p++;
+    printf("magic=0x%02X len=%u cmd=%.*s\n", magic, len, len, (const char *)p);
+    p += len;                          /* skip the command */
+
+    printf("remaining bytes: %td ->", end - p);
+    while (p < end)
+        printf(" %02X", *p++);
+    printf("\n");
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>ده شكل كل parser</strong><p>pointer بيقرا field ويتحرك، مع حد نهاية <code>end</code>. لما تحلل protocol parser أو config decoder في sample، هتلاقي نفس النمط: <code>movzx eax, byte ptr [rbx]</code> ← <code>inc rbx</code> ← <code>cmp rbx, r12</code>. والثغرة الكلاسيكية: الـ <code>len</code> جاي من البيانات ومحدش اتأكد إن <code>p + len &lt;= end</code>.</p></div></div>
+
+        <h3 class="sub">void* : الـ Pointer العام <span class="tag">generic</span></h3>
+        <p><code>void *</code> = عنوان من غير نوع. أي pointer بيتحول له ومنه تلقائي، لكن <b>مينفعش تعمل له dereference أو arithmetic</b> مباشرة — لازم تعمله cast لنوع الأول. ده اللي بيخلي <code>malloc</code> و<code>memcpy</code> و<code>VirtualAlloc</code> يشتغلوا مع أي نوع.</p>
+        <c-example file="void_ptr.c">
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+/* Generic hexdump: works on ANY object */
+static void hexdump(const void *data, size_t len) {
+    const unsigned char *b = data;          /* cast to bytes to read it */
+    for (size_t i = 0; i < len; i++)
+        printf("%02X%c", b[i], (i + 1) % 8 == 0 ? '\n' : ' ');
+    if (len % 8) printf("\n");
+}
+
+/* Generic swap of any type, using a byte buffer */
+static void swap_any(void *a, void *b, size_t size) {
+    unsigned char tmp[64];
+    if (size > sizeof tmp) return;
+    memcpy(tmp, a, size);
+    memcpy(a, b, size);
+    memcpy(b, tmp, size);
+}
+
+int main(void) {
+    double d = 1.0;
+    uint64_t q = 0x1122334455667788ULL;
+    hexdump(&d, sizeof d);
+    hexdump(&q, sizeof q);
+
+    int x = 1, y = 2;
+    swap_any(&x, &y, sizeof x);
+    printf("x=%d y=%d\n", x, y);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">Array of Pointers vs Pointer to Array <span class="tag">declarations</span></h3>
+        <c-example file="ptr_arrays.c">
+#include <stdio.h>
+
+int main(void) {
+    /* Array of 3 pointers to char: each string can have any length */
+    const char *apis[] = { "CreateFileW", "WriteFile", "CloseHandle" };
+    for (int i = 0; i < 3; i++)
+        printf("apis[%d] = %-12s (first char '%c')\n", i, apis[i], *apis[i]);
+
+    /* Pointer to an array of 4 ints: one row of a 2D array */
+    int grid[2][4] = { { 1, 2, 3, 4 }, { 5, 6, 7, 8 } };
+    int (*row)[4] = grid;           /* points to grid[0] */
+    row++;                          /* jumps a WHOLE row: 16 bytes */
+    printf("(*row)[2] = %d\n", (*row)[2]);
+    printf("sizeof apis = %zu (3 pointers), sizeof *row = %zu (4 ints)\n", sizeof apis, sizeof *row);
+    return 0;
+}
+        </c-example>
+        <div class="callout tip"><span class="ci">🌀</span><div><strong>قراءة التعريفات المعقدة (Spiral Rule)</strong><p>ابدأ من الاسم واقرا لليمين لحد ما توصل <code>)</code>، وبعدين للشمال، وكرر:<br><code>int *a[3]</code> = a is an <b>array of 3 pointers</b> to int.<br><code>int (*a)[3]</code> = a is a <b>pointer to an array</b> of 3 ints.<br><code>int (*f)(int)</code> = f is a <b>pointer to a function</b> taking int returning int.<br><code>char *(*tbl[4])(void)</code> = tbl is an array of 4 pointers to functions returning <code>char *</code>.</p></div></div>
+
+        <h3 class="sub">Function Pointers <span class="tag">callbacks</span></h3>
+        <p>اسم الدالة لوحده = <b>عنوانها</b> في الذاكرة (في الـ <code>.text</code>). تقدر تخزنه في متغير وتناديه بعدين. استخدم <code>typedef</code> عشان تخلي الكود مقروء.</p>
+        <c-example file="func_ptr.c">
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef int (*transform_fn)(int);          /* type: pointer to int f(int) */
+
+static int to_upper(int c) { return (c >= 'a' && c <= 'z') ? c - 32 : c; }
+static int rot13(int c) {
+    if (c >= 'a' && c <= 'z') return 'a' + (c - 'a' + 13) % 26;
+    if (c >= 'A' && c <= 'Z') return 'A' + (c - 'A' + 13) % 26;
+    return c;
+}
+
+static void apply(char *s, transform_fn fn) {   /* callback */
+    for (; *s; s++) *s = (char)fn(*s);
+}
+
+/* qsort needs a comparator callback */
+static int cmp_str(const void *a, const void *b) {
+    const char *const *sa = a, *const *sb = b;
+    return strcmp(*sa, *sb);
+}
+
+int main(void) {
+    char msg[] = "beacon interval";
+    apply(msg, to_upper);
+    printf("%s\n", msg);
+    apply(msg, rot13);
+    printf("%s\n", msg);
+
+    transform_fn chosen = rot13;                 /* store the address */
+    printf("chosen('A') = %c\n", chosen('A'));
+
+    const char *names[] = { "svchost", "explorer", "lsass", "csrss" };
+    qsort(names, 4, sizeof names[0], cmp_str);
+    for (int i = 0; i < 4; i++) printf("%s ", names[i]);
+    printf("\n");
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">Dispatch Tables: جدول دوال <span class="tag">indirect calls</span></h3>
+        <p>بدل <code>switch</code> ضخم: array من function pointers، والـ index بيختار الدالة. ده نفس شكل الـ <b>vtables</b> في C++، وجداول الأوامر في الـ backdoors، وجدول الـ <b>IAT</b> (Import Address Table) في الـ PE.</p>
+        <div class="side-by-side">
+          <c-example file="table.c" norun>
+typedef int (*op_fn)(int, int);
+
+static int add(int a, int b) { return a + b; }
+static int sub(int a, int b) { return a - b; }
+
+op_fn table[2] = { add, sub };
+
+int run(int idx, int a, int b) {
+    return table[idx](a, b);
+}
+          </c-example>
+          <asm-block file="table.s (gcc -O2)">
+add:
+        lea     eax, [rdi+rsi]
+        ret
+sub:
+        mov     eax, edi
+        sub     eax, esi
+        ret
+run:
+        movsx   rdi, edi                 ; idx -> 64-bit
+        mov     rax, QWORD PTR table[0+rdi*8] ; load fn ptr
+        mov     edi, esi                 ; shift args:
+        mov     esi, edx                 ;  a, b
+        jmp     rax                      ; indirect tail call
+table:                                   ; in .data
+        .quad   add
+        .quad   sub
+          </asm-block>
+        </div>
+        <c-example file="dispatch_table.c">
+#include <stdio.h>
+
+typedef void (*handler_fn)(const char *arg);
+
+static void h_sleep(const char *a) { printf("  sleeping %s s\n", a); }
+static void h_echo (const char *a) { printf("  echo: %s\n", a); }
+static void h_exit (const char *a) { (void)a; printf("  exiting\n"); }
+
+static const struct { unsigned char id; handler_fn fn; } handlers[] = {
+    { 0x01, h_sleep },
+    { 0x02, h_echo  },
+    { 0x7F, h_exit  },
+};
+
+static void dispatch(unsigned char id, const char *arg) {
+    for (size_t i = 0; i < sizeof handlers / sizeof handlers[0]; i++) {
+        if (handlers[i].id == id) {
+            handlers[i].fn(arg);        /* indirect call */
+            return;
+        }
+    }
+    printf("  unknown command 0x%02X\n", id);
+}
+
+int main(void) {
+    dispatch(0x02, "hello");
+    dispatch(0x01, "30");
+    dispatch(0x55, "?");
+    dispatch(0x7F, "");
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>إزاي تحل indirect call</strong><p>لما تلاقي <code>call rax</code>: (1) ارجع لورا وشوف <code>rax</code> اتحمل منين — من جدول؟ من struct؟ من نتيجة <code>GetProcAddress</code>؟ (2) لو جدول ثابت في <code>.data</code>/<code>.rdata</code>، كل entry فيه عنوان دالة — اتبعها. (3) لو مش واضح static، حط <b>breakpoint</b> في x64dbg على الـ <code>call</code> وشوف <code>rax</code> = أنهي دالة وقت التشغيل. وفي Ghidra/IDA تقدر تضيف الـ reference يدويًا.</p></div></div>
+
+        <h3 class="sub">Dynamic API Resolution — زي ما الـ Malware بيعمل <span class="tag">GetProcAddress</span></h3>
+        <p>البرامج العادية بتستورد الـ APIs في الـ <b>Import Table</b> (ظاهرة لأي أداة). لكن ممكن تحمّل DLL وتجيب عنوان أي دالة <b>وقت التشغيل</b> وتخزنه في function pointer. الـ malware بيعمل كده عشان يخبي الـ APIs المشبوهة من الـ imports. ده كود Windows عادي وموثق (للقراية، مش هيشتغل على Linux):</p>
+        <c-example file="resolve_api.c" win norun>
+#include <windows.h>
+#include <stdio.h>
+
+/* Function-pointer type matching the real MessageBoxA signature */
+typedef int (WINAPI *MessageBoxA_t)(HWND, LPCSTR, LPCSTR, UINT);
+
+int main(void) {
+    HMODULE user32 = LoadLibraryA("user32.dll");          /* load at runtime */
+    if (user32 == NULL) return 1;
+
+    MessageBoxA_t pMessageBoxA =
+        (MessageBoxA_t)(void *)GetProcAddress(user32, "MessageBoxA");
+    if (pMessageBoxA == NULL) return 1;
+
+    pMessageBoxA(NULL, "Resolved at runtime", "demo", MB_OK);  /* call rax */
+    FreeLibrary(user32);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>علامات في الـ sample</strong><p>(1) Import table فيها <code>LoadLibraryA</code> و<code>GetProcAddress</code> وشوية APIs بس = غالبًا بيحل الباقي dynamic. (2) strings لأسماء APIs (مشفرة أحيانًا) بتتبعت لـ <code>GetProcAddress</code>. (3) أو مفيش strings خالص وفيه hashes (زي ROR-13 في المرحلة 03) والكود بيمشي على الـ export table بنفسه. في كل الحالات النتيجة متخزنة في متغيرات global — سمّيها باسم الـ API في Ghidra وكل الـ <code>call [rip+X]</code> هتبقى مقروءة.</p></div></div>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 08</h3></div>
+
+          <quiz id="s08-q1" answer="1">
+            <q>بعد <code>int a[] = {10, 20, 30}; int *p = a; int v = *p++;</code> — قيم <code>v</code> و<code>*p</code>؟</q>
+            <o><code>v=20</code>، <code>*p=20</code></o>
+            <o><code>v=10</code>، <code>*p=20</code></o>
+            <o><code>v=11</code>، <code>*p=10</code></o>
+            <o><code>v=10</code>، <code>*p=10</code></o>
+            <good><code>*p++</code> = اقرا <code>*p</code> (10)، وبعدين حرّك <code>p</code> للعنصر التالي (20).</good>
+            <bad>الـ postfix <code>++</code> مربوط بـ <code>p</code> مش بـ <code>*p</code>، وبيحصل بعد استخدام القيمة.</bad>
+          </quiz>
+
+          <quiz id="s08-q2" answer="3">
+            <q>ليه الكود ده مش بيعمل compile؟ <code>void *p = buf; p[0] = 1;</code></q>
+            <o><code>buf</code> لازم يبقى const</o>
+            <o>لازم <code>malloc</code> الأول</o>
+            <o><code>void *</code> مش بيتحول تلقائيًا</o>
+            <o><code>void</code> ملوش حجم، فمينفعش dereference أو indexing مباشرة — لازم cast لـ <code>unsigned char *</code> مثلًا</o>
+            <good>الـ compiler مش عارف يقرا كام byte من <code>void</code>. الـ cast بيحدد النوع.</good>
+            <bad>فكّر: <code>sizeof(void)</code> = ؟</bad>
+          </quiz>
+
+          <quiz id="s08-q3" answer="0">
+            <q><code>int (*f)(const char *)</code> معناها...</q>
+            <o><code>f</code> pointer لدالة بتاخد <code>const char *</code> وبترجع <code>int</code></o>
+            <o><code>f</code> دالة بترجع pointer لـ int</o>
+            <o><code>f</code> array من pointers</o>
+            <o><code>f</code> pointer لـ int</o>
+            <good>الأقواس حوالين <code>*f</code> بتخليه pointer الأول، والـ <code>(...)</code> اللي بعده بيقول إنه pointer لدالة.</good>
+            <bad>من غير الأقواس <code>int *f(const char *)</code> كانت هتبقى <b>دالة</b> بترجع <code>int *</code>.</bad>
+          </quiz>
+
+          <quiz id="s08-q4" answer="2">
+            <q>شفت: <code>mov rax, [rbx]</code> ← <code>call qword ptr [rax+10h]</code>. إيه أرجح تفسير؟</q>
+            <o>loop بيقرا array</o>
+            <o>استدعاء <code>printf</code></o>
+            <o><code>rbx</code> بيشاور على object، أول field فيه pointer لجدول دوال (vtable)، وبننادي الدالة رقم 3 فيه (<code>0x10/8 = 2</code> ← الـ index 2)</o>
+            <o>قراية string</o>
+            <good>ده نمط C++ virtual call الكلاسيكي (أو struct of function pointers في C — زي COM objects في Windows). الـ offset ÷ 8 = رقم الدالة في الجدول.</good>
+            <bad>قراية pointer من أول الـ object، وبعدين call على offset منه… جدول إيه ده؟</bad>
+          </quiz>
+
+          <quiz id="s08-q5" answer="1">
+            <q>sample الـ import table بتاعه فيه بس <code>LoadLibraryA</code> و<code>GetProcAddress</code> و<code>ExitProcess</code>. استنتاجك؟</q>
+            <o>برنامج بسيط مبيعملش حاجة</o>
+            <o>غالبًا بيحل باقي الـ APIs dynamically وقت التشغيل عشان يخبيها من التحليل الـ static</o>
+            <o>الـ binary بايظ</o>
+            <o>مكتوب بـ Python</o>
+            <good>Import table فقيرة جدًا علامة على dynamic resolution أو packing. الخطوة الجاية: دوّر على الـ strings أو الـ hashes اللي بتتبعت لـ <code>GetProcAddress</code>.</good>
+            <bad>إزاي البرنامج يقدر يستخدم APIs مش موجودة في الـ imports؟</bad>
+          </quiz>
+
+          <challenge id="s08-c1" title="آلة حاسبة بـ dispatch table">
+            <desc>اعمل array من 4 function pointers (<code>add, sub, mul, divi</code>) واستخدم الـ opcode كـ index. القسمة على صفر ترجع 0. نفّذ البرنامج ده (opcodes: 0=add، 1=sub، 2=mul، 3=div):<br><code>op0(12, 5) = 17</code><br><code>op1(12, 5) = 7</code><br><code>op2(12, 5) = 60</code><br><code>op3(12, 5) = 2</code><br><code>op3(1, 0) = 0</code></desc>
+            <starter>
+#include <stdio.h>
+
+typedef int (*op_fn)(int, int);
+
+// TODO: write add, sub, mul, divi and the table
+
+int main(void) {
+    int tests[][3] = { {0, 12, 5}, {1, 12, 5}, {2, 12, 5}, {3, 12, 5}, {3, 1, 0} };
+    for (int i = 0; i < 5; i++) {
+        int op = tests[i][0], a = tests[i][1], b = tests[i][2];
+        int r = 0; // TODO: r = table[op](a, b);
+        printf("op%d(%d, %d) = %d\n", op, a, b, r);
+    }
+    return 0;
+}
+            </starter>
+            <expected>
+op0(12, 5) = 17
+op1(12, 5) = 7
+op2(12, 5) = 60
+op3(12, 5) = 2
+op3(1, 0) = 0
+            </expected>
+            <solution>
+#include <stdio.h>
+
+typedef int (*op_fn)(int, int);
+
+static int add(int a, int b)  { return a + b; }
+static int sub(int a, int b)  { return a - b; }
+static int mul(int a, int b)  { return a * b; }
+static int divi(int a, int b) { return b == 0 ? 0 : a / b; }
+
+static const op_fn table[] = { add, sub, mul, divi };
+
+int main(void) {
+    int tests[][3] = { {0, 12, 5}, {1, 12, 5}, {2, 12, 5}, {3, 12, 5}, {3, 1, 0} };
+    for (int i = 0; i < 5; i++) {
+        int op = tests[i][0], a = tests[i][1], b = tests[i][2];
+        int r = table[op](a, b);
+        printf("op%d(%d, %d) = %d\n", op, a, b, r);
+    }
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s08-c2" title="qsort لأرقام PIDs بترتيب تنازلي" level="2">
+            <desc>رتّب array من <code>unsigned int</code> <b>تنازلي</b> باستخدام <code>qsort</code> وcomparator بتكتبه إنت. انتبه: متكتبش <code>return b - a;</code> مع unsigned (overflow!) — استخدم مقارنات. الناتج:<br><code>4096 1337 772 640 4 0</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdlib.h>
+
+int cmp_desc(const void *a, const void *b) {
+    // TODO
+    (void)a; (void)b;
+    return 0;
+}
+
+int main(void) {
+    unsigned int pids[] = { 772, 4, 4096, 0, 1337, 640 };
+    size_t n = sizeof pids / sizeof pids[0];
+    qsort(pids, n, sizeof pids[0], cmp_desc);
+    for (size_t i = 0; i < n; i++)
+        printf(i ? " %u" : "%u", pids[i]);
+    printf("\n");
+    return 0;
+}
+            </starter>
+            <expected>
+4096 1337 772 640 4 0
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdlib.h>
+
+int cmp_desc(const void *a, const void *b) {
+    unsigned int x = *(const unsigned int *)a;
+    unsigned int y = *(const unsigned int *)b;
+    return (x < y) - (x > y);      /* descending, no overflow */
+}
+
+int main(void) {
+    unsigned int pids[] = { 772, 4, 4096, 0, 1337, 640 };
+    size_t n = sizeof pids / sizeof pids[0];
+    qsort(pids, n, sizeof pids[0], cmp_desc);
+    for (size_t i = 0; i < n; i++)
+        printf(i ? " %u" : "%u", pids[i]);
+    printf("\n");
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s08-c3" title="Resolver بالـ hash (محاكاة)" level="3">
+            <desc>محاكاة لـ export table: array من <code>{ name, function pointer }</code>. اكتب <code>void *resolve(uint32_t hash)</code> بتحسب hash لكل اسم بخوارزمية <b>djb2</b> (<code>h = 5381; h = h * 33 + c</code> لكل حرف، <code>uint32_t</code>) وترجع الـ pointer لو اتطابق، أو <code>NULL</code>. نادي الدالة اللي الـ hash بتاعها <code>0x1C5EEA16</code> بالـ argument 7، واطبع:<br><code>resolved -> square</code><br><code>result = 49</code><br><code>0xDEADBEEF -> not found</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef int (*fn_t)(int);
+static int twice(int x)  { return 2 * x; }
+static int square(int x) { return x * x; }
+static int negate(int x) { return -x; }
+
+static const struct { const char *name; fn_t fn; } exports[] = {
+    { "twice", twice }, { "square", square }, { "negate", negate },
+};
+
+uint32_t djb2(const char *s) {
+    uint32_t h = 5381;
+    // TODO
+    (void)s;
+    return h;
+}
+
+// TODO: resolve(hash) returning fn_t (or NULL), and print the name it matched
+
+int main(void) {
+    // TODO
+    (void)exports;
+    return 0;
+}
+            </starter>
+            <expected>
+resolved -> square
+result = 49
+0xDEADBEEF -> not found
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef int (*fn_t)(int);
+static int twice(int x)  { return 2 * x; }
+static int square(int x) { return x * x; }
+static int negate(int x) { return -x; }
+
+static const struct { const char *name; fn_t fn; } exports[] = {
+    { "twice", twice }, { "square", square }, { "negate", negate },
+};
+
+uint32_t djb2(const char *s) {
+    uint32_t h = 5381;
+    while (*s)
+        h = h * 33 + (uint8_t)*s++;
+    return h;
+}
+
+static fn_t resolve(uint32_t hash) {
+    for (size_t i = 0; i < sizeof exports / sizeof exports[0]; i++) {
+        if (djb2(exports[i].name) == hash) {
+            printf("resolved -> %s\n", exports[i].name);
+            return exports[i].fn;
+        }
+    }
+    return NULL;
+}
+
+int main(void) {
+    fn_t f = resolve(0x1C5EEA16);
+    if (f) printf("result = %d\n", f(7));
+    if (resolve(0xDEADBEEF) == NULL) printf("0xDEADBEEF -> not found\n");
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>

@@ -1,0 +1,448 @@
+      <section class="section" id="s13" data-part="الجزء 3 · C تحت المجهر" data-nav="Assembly x86-64" data-icon="⚙️" data-keywords="assembly x86-64 x64 registers rax rbx rcx rdx rsi rdi rsp rbp rip r8 r15 eax ax al flags zf sf cf of mov lea push pop add sub imul idiv cdq cqo cmp test jmp jcc call ret cmov setcc rep movsb stosb intel att syntax addressing modes inline asm">
+        <div class="section-head">
+          <span class="section-index">13</span>
+          <div>
+            <p class="eyebrow">المرحلة الثالثة عشر · الجزء 3 يبدأ</p>
+            <h2>Assembly x86-64 لمبرمج C</h2>
+            <p class="lede">مش محتاج تبقى مبرمج Assembly عشان تبقى Reverser ممتاز — محتاج تبقى <b>قارئ</b> ممتاز. الخبر الحلو: الـ compilers بتستخدم مجموعة صغيرة من الـ instructions (حوالي 30 instruction بيغطوا 95% من الكود). المرحلة دي بتديك الأساس ده، وكمان هتكتب دوال Assembly بإيدك وتناديها من C <b>جوه الصفحة</b>.</p>
+          </div>
+        </div>
+
+        <h3 class="sub">الـ Registers <span class="tag">16 general purpose</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>64-bit</th><th>32</th><th>16</th><th>8</th><th>الاستخدام المعتاد</th></tr></thead>
+            <tbody>
+              <tr><td><code>rax</code></td><td><code>eax</code></td><td><code>ax</code></td><td><code>al</code></td><td>القيمة الراجعة، الحسابات</td></tr>
+              <tr><td><code>rbx</code></td><td><code>ebx</code></td><td><code>bx</code></td><td><code>bl</code></td><td>عام (callee-saved)</td></tr>
+              <tr><td><code>rcx</code></td><td><code>ecx</code></td><td><code>cx</code></td><td><code>cl</code></td><td>Arg1 على Windows · Arg4 على Linux · عدّاد / shift count</td></tr>
+              <tr><td><code>rdx</code></td><td><code>edx</code></td><td><code>dx</code></td><td><code>dl</code></td><td>Arg2 Win · Arg3 Linux · النص العالي في الضرب/القسمة</td></tr>
+              <tr><td><code>rsi</code> / <code>rdi</code></td><td><code>esi</code>/<code>edi</code></td><td><code>si</code>/<code>di</code></td><td><code>sil</code>/<code>dil</code></td><td>Arg2/Arg1 على Linux · source/dest في string ops</td></tr>
+              <tr><td><code>rsp</code></td><td><code>esp</code></td><td>—</td><td>—</td><td><b>Stack pointer</b> — قمة الـ stack</td></tr>
+              <tr><td><code>rbp</code></td><td><code>ebp</code></td><td>—</td><td>—</td><td><b>Frame pointer</b> (في <code>-O0</code>) أو عام</td></tr>
+              <tr><td><code>r8</code>…<code>r15</code></td><td><code>r8d</code>…</td><td><code>r8w</code>…</td><td><code>r8b</code>…</td><td>r8/r9 = Arg5/6 Linux و Arg3/4 Windows</td></tr>
+              <tr><td><code>rip</code></td><td colspan="3">—</td><td>عنوان الـ instruction الجاية (مش بتتكتب مباشرة)</td></tr>
+              <tr><td><code>xmm0</code>…<code>xmm15</code></td><td colspan="3">128-bit</td><td>الـ floats/doubles + SIMD (<code>memcpy</code> السريع)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warn"><span class="ci">⚠️</span><div><strong>قاعدة الـ 32-bit الغريبة</strong><p>الكتابة في register 32-bit (<code>mov eax, 1</code>) <b>بتصفّر</b> الـ 32 bit العليا من <code>rax</code> أوتوماتيك. لكن الكتابة في 16 أو 8 bit (<code>mov al, 1</code>) <b>مش</b> بتلمس الباقي. عشان كده الـ compilers بتكتب <code>xor eax, eax</code> مش <code>xor rax, rax</code> (أقصر ونفس النتيجة)، و<code>mov edi, edi</code> اللي شفناها في الـ jump table = zero-extend لـ 64-bit.</p></div></div>
+
+        <h3 class="sub">الـ Flags: ذاكرة آخر عملية <span class="tag">RFLAGS</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Flag</th><th>بيتعمله set لما</th><th>بيستخدمه</th></tr></thead>
+            <tbody>
+              <tr><td><b>ZF</b> Zero</td><td>النتيجة = 0</td><td><code>je/jz</code>، <code>jne/jnz</code></td></tr>
+              <tr><td><b>SF</b> Sign</td><td>أعلى bit في النتيجة = 1 (سالب)</td><td><code>js</code>، و<code>jl/jg</code> مع OF</td></tr>
+              <tr><td><b>CF</b> Carry</td><td>overflow <b>unsigned</b> (أو borrow في الطرح)</td><td><code>jb/jae</code>، <code>adc</code></td></tr>
+              <tr><td><b>OF</b> Overflow</td><td>overflow <b>signed</b></td><td><code>jo</code>، <code>jl/jg</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><code>cmp a, b</code> = بيحسب <code>a - b</code> ويغيّر الـ flags من غير ما يخزّن النتيجة. <code>test a, b</code> = بيحسب <code>a &amp; b</code> بنفس الطريقة. فـ <code>test eax, eax</code> + <code>jz</code> = <code>if (eax == 0)</code>، و<code>test al, 1</code> + <code>jnz</code> = <code>if (x &amp; 1)</code>.</p>
+
+        <h3 class="sub">الـ Instructions الأساسية <span class="tag">~30 instruction</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Instruction</th><th>المعنى بـ C</th><th>ملاحظة</th></tr></thead>
+            <tbody>
+              <tr><td><code>mov dst, src</code></td><td><code>dst = src;</code></td><td>مش بيغير flags. مينفعش memory ← memory</td></tr>
+              <tr><td><code>movzx</code> / <code>movsx</code> / <code>movsxd</code></td><td>تحويل لنوع أكبر</td><td>zero / sign extension</td></tr>
+              <tr><td><code>lea dst, [expr]</code></td><td><code>dst = &amp;expr</code> أو حساب</td><td>مبيقراش ذاكرة. بيستخدم للضرب السريع</td></tr>
+              <tr><td><code>push x</code> / <code>pop x</code></td><td>حط/شيل من الـ stack</td><td><code>push</code>: <code>rsp -= 8; [rsp] = x</code></td></tr>
+              <tr><td><code>add</code> <code>sub</code> <code>inc</code> <code>dec</code> <code>neg</code></td><td><code>+= -= ++ -- -x</code></td><td>بيغيروا الـ flags</td></tr>
+              <tr><td><code>imul dst, src[, imm]</code></td><td><code>dst *= src</code></td><td>signed. <code>mul</code> = unsigned في <code>rdx:rax</code></td></tr>
+              <tr><td><code>cdq</code>/<code>cqo</code> + <code>idiv x</code></td><td><code>/</code> و <code>%</code></td><td>الناتج في <code>eax</code>، الباقي في <code>edx</code></td></tr>
+              <tr><td><code>and or xor not</code></td><td><code>&amp; | ^ ~</code></td><td></td></tr>
+              <tr><td><code>shl</code> <code>shr</code> <code>sar</code> <code>rol</code> <code>ror</code></td><td><code>&lt;&lt; &gt;&gt;</code> rotate</td><td><code>sar</code> = signed</td></tr>
+              <tr><td><code>cmp</code> / <code>test</code></td><td>مقارنة / اختبار bits</td><td>flags بس</td></tr>
+              <tr><td><code>jmp</code> / <code>jcc</code></td><td><code>goto</code> / <code>if</code></td><td>شوف جدول المرحلة 04</td></tr>
+              <tr><td><code>setcc reg8</code></td><td><code>x = (cond);</code></td><td><code>sete al</code></td></tr>
+              <tr><td><code>cmovcc dst, src</code></td><td><code>if (cond) dst = src;</code></td><td>من غير branch — الـ ternary</td></tr>
+              <tr><td><code>call f</code> / <code>ret</code></td><td>استدعاء / رجوع</td><td><code>call</code> = push عنوان الرجوع + jmp</td></tr>
+              <tr><td><code>leave</code></td><td><code>mov rsp, rbp; pop rbp</code></td><td>نهاية الـ frame</td></tr>
+              <tr><td><code>rep movsb</code> / <code>rep stosb</code></td><td><code>memcpy</code> / <code>memset</code></td><td>العدد في <code>rcx</code></td></tr>
+              <tr><td><code>nop</code> / <code>int3</code></td><td>ولا حاجة / breakpoint</td><td><code>int3</code> = <code>0xCC</code> — الـ debuggers بتستخدمه</td></tr>
+              <tr><td><code>syscall</code></td><td>نداء للـ kernel مباشرة</td><td>على Windows، لو لقيته برا <code>ntdll</code> = <b>direct syscalls</b> (تكنيك تخفي)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">الـ Addressing Modes <span class="tag">[base + index*scale + disp]</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>الصيغة</th><th>المعنى بـ C</th></tr></thead>
+            <tbody>
+              <tr><td><code>[rax]</code></td><td><code>*p</code></td></tr>
+              <tr><td><code>[rax+10h]</code></td><td><code>p-&gt;field</code> (offset 0x10)</td></tr>
+              <tr><td><code>[rbp-14h]</code></td><td>متغير محلي على الـ stack</td></tr>
+              <tr><td><code>[rax+rcx*4]</code></td><td><code>arr[i]</code> (عناصر 4 bytes)</td></tr>
+              <tr><td><code>[rax+rcx*8+20h]</code></td><td><code>s-&gt;arr[i]</code> (array of 8-byte جوه struct عند 0x20)</td></tr>
+              <tr><td><code>[rip+12345h]</code></td><td>global / string ثابت (RIP-relative — الطبيعي في x64)</td></tr>
+              <tr><td><code>gs:[60h]</code></td><td>الـ PEB على Windows x64 (<code>fs:[30h]</code> على 32-bit)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub">Intel vs AT&amp;T Syntax <span class="tag">syntax</span></h3>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th></th><th>Intel (IDA، x64dbg، Ghidra، الكورس ده)</th><th>AT&amp;T (gdb/objdump الافتراضي)</th></tr></thead>
+            <tbody>
+              <tr><td>ترتيب المعاملات</td><td><code>mov <b>dst</b>, src</code></td><td><code>mov src, <b>dst</b></code></td></tr>
+              <tr><td>مثال</td><td><code>mov eax, 1</code></td><td><code>movl $1, %eax</code></td></tr>
+              <tr><td>ذاكرة</td><td><code>mov eax, [rbp-8]</code></td><td><code>movl -8(%rbp), %eax</code></td></tr>
+              <tr><td>index</td><td><code>[rax+rcx*4]</code></td><td><code>(%rax,%rcx,4)</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>في gdb: <code>set disassembly-flavor intel</code>، وفي objdump: <code>-M intel</code>.</p>
+
+        <h3 class="sub">اكتب Assembly بإيدك وشغّله! <span class="tag">hands-on</span></h3>
+        <p>الـ GCC بيسمح بـ <code>__asm__</code> على مستوى الملف: بتكتب دالة كاملة بالـ Assembly، وتعرّف الـ prototype بتاعها في C وتناديها عادي. (التشغيل هنا Linux، فالـ arguments في <code>rdi, rsi, rdx…</code> والرجوع في <code>rax</code>.) عدّل في الكود وشغّل:</p>
+        <c-example file="handwritten.c">
+#include <stdio.h>
+
+__asm__(
+    ".intel_syntax noprefix\n"
+    ".text\n"
+    ".globl my_add\n"
+    "my_add:\n"                      /* int my_add(int a, int b) */
+    "    lea  eax, [rdi+rsi]\n"      /* eax = a + b               */
+    "    ret\n"
+    ".globl my_abs\n"
+    "my_abs:\n"                      /* int my_abs(int x)         */
+    "    mov  eax, edi\n"
+    "    neg  eax\n"                 /* eax = -x, sets SF          */
+    "    cmovs eax, edi\n"           /* if result negative, eax = x */
+    "    ret\n"
+    ".globl count_down\n"
+    "count_down:\n"                  /* long count_down(long n): n + (n-1) + ... + 1 */
+    "    xor  eax, eax\n"
+    ".Lloop:\n"
+    "    test rdi, rdi\n"
+    "    jz   .Ldone\n"
+    "    add  rax, rdi\n"
+    "    dec  rdi\n"
+    "    jmp  .Lloop\n"
+    ".Ldone:\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+);
+int  my_add(int a, int b);
+int  my_abs(int x);
+long count_down(long n);
+
+int main(void) {
+    printf("my_add(40, 2)   = %d\n", my_add(40, 2));
+    printf("my_abs(-17)     = %d\n", my_abs(-17));
+    printf("my_abs(23)      = %d\n", my_abs(23));
+    printf("count_down(100) = %ld\n", count_down(100));
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">القسمة والـ Remainder <span class="tag">idiv</span></h3>
+        <c-example file="divide.c">
+#include <stdio.h>
+
+__asm__(
+    ".intel_syntax noprefix\n"
+    ".text\n"
+    ".globl divmod\n"
+    "divmod:\n"                    /* void divmod(int a, int b, int *q, int *r) */
+    "    mov  eax, edi\n"          /* dividend in eax                        */
+    "    mov  r8, rdx\n"           /* save q pointer (rdx is about to change) */
+    "    cdq\n"                    /* sign-extend eax into edx:eax           */
+    "    idiv esi\n"               /* eax = quotient, edx = remainder        */
+    "    mov  [r8], eax\n"
+    "    mov  [rcx], edx\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+);
+void divmod(int a, int b, int *q, int *r);
+
+int main(void) {
+    int q, r;
+    divmod(47, 5, &q, &r);
+    printf("47 / 5 -> q=%d r=%d\n", q, r);
+    divmod(-47, 5, &q, &r);
+    printf("-47 / 5 -> q=%d r=%d\n", q, r);
+    return 0;
+}
+        </c-example>
+        <div class="callout re"><span class="ci">🔬</span><div><strong>idiv نادرة في الكود المعمول له optimization</strong><p><code>idiv</code> بطيئة جدًا (عشرات الـ cycles)، فالـ compilers لما المقسوم عليه ثابت بيستبدلوها بـ <b>ضرب في "magic number"</b> + shift. لو شفت <code>mov eax, 0CCCCCCCDh</code> + <code>mul</code> + <code>shr edx, 3</code> — ده <code>x / 10</code>. هنشوفها بالتفصيل في المرحلة 14.</p></div></div>
+
+        <h3 class="sub">String Instructions <span class="tag">rep</span></h3>
+        <c-example file="rep_string.c">
+#include <stdio.h>
+
+__asm__(
+    ".intel_syntax noprefix\n"
+    ".text\n"
+    ".globl asm_memset\n"
+    "asm_memset:\n"               /* void *asm_memset(void *dst, int c, size_t n) */
+    "    mov  r9, rdi\n"          /* keep dst for the return value               */
+    "    mov  eax, esi\n"         /* al = byte to store                          */
+    "    mov  rcx, rdx\n"         /* rcx = count                                 */
+    "    rep  stosb\n"            /* while (rcx--) *rdi++ = al;                  */
+    "    mov  rax, r9\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+);
+void *asm_memset(void *dst, int c, unsigned long n);
+
+int main(void) {
+    char buf[13] = "............";       /* 12 dots + '\0' */
+    asm_memset(buf + 2, 'A', 5);
+    printf("%s\n", buf);
+    return 0;
+}
+        </c-example>
+
+        <h3 class="sub">اقرا الـ Assembly ده <span class="tag">reading practice</span></h3>
+        <p>اتعود تعمل الخطوات دي مع أي دالة: (1) حدد الـ arguments من الـ registers اللي بتتقرا قبل ما تتكتب. (2) حدد الـ loops من الـ back-edges. (3) اكتب كل سطر كـ C pseudo-code. (4) بسّط. جرّب في التمارين اللي تحت.</p>
+
+        <div class="exercises">
+          <div class="exercises-head"><h3><span class="bulb">✏️</span> تمارين المرحلة 13</h3></div>
+
+          <quiz id="s13-q1" answer="1">
+            <q>بعد <code>mov rax, -1</code> ثم <code>mov eax, 5</code> — قيمة <code>rax</code>؟</q>
+            <o><code>0xFFFFFFFF00000005</code></o>
+            <o><code>0x0000000000000005</code></o>
+            <o><code>0xFFFFFFFFFFFFFFFF</code></o>
+            <o><code>0x00000000FFFFFFFF</code></o>
+            <good>الكتابة في register 32-bit بتصفّر الـ 32 bit العليا.</good>
+            <bad>افتكر القاعدة الخاصة بالكتابة في الـ registers الـ 32-bit.</bad>
+          </quiz>
+
+          <quiz id="s13-q2" answer="3">
+            <q>الدالة دي (Linux ABI) بترجع إيه؟<pre-asm>
+f:
+    mov   eax, edi
+    imul  eax, edi
+    add   eax, esi
+    ret
+            </pre-asm></q>
+            <o><code>a + b</code></o>
+            <o><code>a * b</code></o>
+            <o><code>(a + b) * a</code></o>
+            <o><code>a * a + b</code></o>
+            <good><code>eax = a</code> ← <code>eax *= a</code> ← <code>eax += b</code>. فالدالة <code>int f(int a, int b) { return a*a + b; }</code>.</good>
+            <bad><code>edi</code> = arg1، <code>esi</code> = arg2. تتبّع <code>eax</code> سطر بسطر.</bad>
+          </quiz>
+
+          <quiz id="s13-q3" answer="0">
+            <q>إيه اللي بتعمله الدالة دي؟<pre-asm>
+g:
+    xor   eax, eax
+.L2:
+    cmp   byte ptr [rdi+rax], 0
+    je    .L1
+    add   rax, 1
+    jmp   .L2
+.L1:
+    ret
+            </pre-asm></q>
+            <o><code>strlen(s)</code></o>
+            <o><code>strcpy</code></o>
+            <o>بتعد الأصفار</o>
+            <o><code>memset</code></o>
+            <good>عدّاد بيبدأ من 0، بيزيد لحد ما يلاقي byte = 0 عند <code>s[i]</code>، وبيرجعه. ده <code>strlen</code> بالظبط.</good>
+            <bad><code>rdi</code> = pointer، <code>rax</code> = index. الـ loop بتقف إمتى؟</bad>
+          </quiz>
+
+          <quiz id="s13-q4" answer="2">
+            <q><code>cmp eax, ebx</code> ثم <code>jb label</code> — القفز بيحصل إمتى؟</q>
+            <o><code>eax &lt; ebx</code> كأرقام signed</o>
+            <o><code>eax == ebx</code></o>
+            <o><code>eax &lt; ebx</code> كأرقام <b>unsigned</b></o>
+            <o><code>eax &gt; ebx</code></o>
+            <good><code>jb</code> = Jump if Below = unsigned less-than (CF=1). الـ signed هو <code>jl</code>.</good>
+            <bad>Below/Above للـ unsigned، Less/Greater للـ signed.</bad>
+          </quiz>
+
+          <quiz id="s13-q5" answer="1">
+            <q>الـ instruction اللي الـ debugger بيحطها مكان الكود عشان يعمل software breakpoint؟</q>
+            <o><code>nop</code> (<code>0x90</code>)</o>
+            <o><code>int3</code> (<code>0xCC</code>)</o>
+            <o><code>ret</code> (<code>0xC3</code>)</o>
+            <o><code>hlt</code></o>
+            <good>الـ debugger بيستبدل أول byte بـ <code>0xCC</code>. عشان كده الـ malware ساعات بيعمل <b>checksum على كوده</b> أو بيدور على <code>0xCC</code> عشان يكتشف الـ breakpoints (anti-debugging).</good>
+            <bad>هي interrupt رقم 3، وحجمها byte واحد.</bad>
+          </quiz>
+
+          <quiz id="s13-q6" answer="3">
+            <q>الـ ternary <code>r = (a &lt; b) ? a : b;</code> بـ <code>-O2</code> غالبًا بيتحول لـ...</q>
+            <o><code>call min</code></o>
+            <o>loop</o>
+            <o><code>idiv</code></o>
+            <o><code>cmp</code> + <code>cmovl</code> (أو <code>cmovg</code>) من غير أي jump</o>
+            <good><code>cmov</code> = conditional move: بتختار القيمة من غير branch. لما تشوفها اكتبها ternary أو <code>min</code>/<code>max</code>.</good>
+            <bad>فيه instruction بتنقل قيمة بشرط، من غير قفز.</bad>
+          </quiz>
+
+          <challenge id="s13-c1" title="اكتب max بالـ Assembly" level="2">
+            <desc>اكتب <code>int my_max(int a, int b)</code> بالـ Assembly (Linux ABI: <code>a</code> في <code>edi</code>، <code>b</code> في <code>esi</code>، والرجوع في <code>eax</code>) باستخدام <code>cmp</code> و<code>cmovl</code> (من غير jumps). الناتج:<br><code>max(3, 9) = 9</code><br><code>max(-4, -12) = -4</code><br><code>max(7, 7) = 7</code></desc>
+            <starter>
+#include <stdio.h>
+
+__asm__(
+    ".intel_syntax noprefix\n"
+    ".text\n"
+    ".globl my_max\n"
+    "my_max:\n"
+    "    xor eax, eax\n"     /* TODO: replace with the real logic */
+    "    ret\n"
+    ".att_syntax prefix\n"
+);
+int my_max(int a, int b);
+
+int main(void) {
+    printf("max(3, 9) = %d\n", my_max(3, 9));
+    printf("max(-4, -12) = %d\n", my_max(-4, -12));
+    printf("max(7, 7) = %d\n", my_max(7, 7));
+    return 0;
+}
+            </starter>
+            <expected>
+max(3, 9) = 9
+max(-4, -12) = -4
+max(7, 7) = 7
+            </expected>
+            <solution>
+#include <stdio.h>
+
+__asm__(
+    ".intel_syntax noprefix\n"
+    ".text\n"
+    ".globl my_max\n"
+    "my_max:\n"
+    "    mov   eax, edi\n"   /* assume a is the max            */
+    "    cmp   edi, esi\n"   /* compare a with b (signed)       */
+    "    cmovl eax, esi\n"   /* if a < b then eax = b           */
+    "    ret\n"
+    ".att_syntax prefix\n"
+);
+int my_max(int a, int b);
+
+int main(void) {
+    printf("max(3, 9) = %d\n", my_max(3, 9));
+    printf("max(-4, -12) = %d\n", my_max(-4, -12));
+    printf("max(7, 7) = %d\n", my_max(7, 7));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s13-c2" title="مجموع array بالـ Assembly" level="3">
+            <desc>اكتب <code>long sum_array(const int *arr, long n)</code> بالـ Assembly: loop على العناصر (عناصر 4 bytes — استخدم <code>movsxd</code> عشان تحوّل كل int لـ 64-bit قبل الجمع). الناتج:<br><code>sum = 100</code><br><code>sum = -6</code><br><code>sum = 0</code></desc>
+            <starter>
+#include <stdio.h>
+
+__asm__(
+    ".intel_syntax noprefix\n"
+    ".text\n"
+    ".globl sum_array\n"
+    "sum_array:\n"
+    "    xor eax, eax\n"     /* TODO: loop over rdi[0..rsi) */
+    "    ret\n"
+    ".att_syntax prefix\n"
+);
+long sum_array(const int *arr, long n);
+
+int main(void) {
+    int a[] = { 10, 20, 30, 40 };
+    int b[] = { -1, -2, -3 };
+    printf("sum = %ld\n", sum_array(a, 4));
+    printf("sum = %ld\n", sum_array(b, 3));
+    printf("sum = %ld\n", sum_array(a, 0));
+    return 0;
+}
+            </starter>
+            <expected>
+sum = 100
+sum = -6
+sum = 0
+            </expected>
+            <solution>
+#include <stdio.h>
+
+__asm__(
+    ".intel_syntax noprefix\n"
+    ".text\n"
+    ".globl sum_array\n"
+    "sum_array:\n"
+    "    xor   eax, eax\n"             /* rax = total = 0 */
+    "    xor   ecx, ecx\n"             /* rcx = i = 0     */
+    ".Lsum_loop:\n"
+    "    cmp   rcx, rsi\n"             /* i < n ?         */
+    "    jge   .Lsum_done\n"
+    "    movsxd rdx, DWORD PTR [rdi+rcx*4]\n"  /* rdx = (long)arr[i] */
+    "    add   rax, rdx\n"
+    "    inc   rcx\n"
+    "    jmp   .Lsum_loop\n"
+    ".Lsum_done:\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+);
+long sum_array(const int *arr, long n);
+
+int main(void) {
+    int a[] = { 10, 20, 30, 40 };
+    int b[] = { -1, -2, -3 };
+    printf("sum = %ld\n", sum_array(a, 4));
+    printf("sum = %ld\n", sum_array(b, 3));
+    printf("sum = %ld\n", sum_array(a, 0));
+    return 0;
+}
+            </solution>
+          </challenge>
+
+          <challenge id="s13-c3" title="ترجم الـ Assembly لـ C" level="2">
+            <desc>الدالة دي من sample (Linux ABI). اكتبها بـ C بنفس السلوك واطبع نتيجتها لـ <code>mystery(0x12345678)</code> و<code>mystery(0)</code> و<code>mystery(0xFFFFFFFF)</code>:<pre class="q-code"><code class="language-asm">mystery:
+    mov   eax, edi
+    shr   eax, 16
+    xor   eax, edi
+    and   eax, 0FFFFh
+    ret</code></pre>الناتج:<br><code>0x0000444C</code><br><code>0x00000000</code><br><code>0x00000000</code></desc>
+            <starter>
+#include <stdio.h>
+#include <stdint.h>
+
+uint32_t mystery(uint32_t x) {
+    // TODO: translate the assembly
+    return x;
+}
+
+int main(void) {
+    printf("0x%08X\n", mystery(0x12345678));
+    printf("0x%08X\n", mystery(0));
+    printf("0x%08X\n", mystery(0xFFFFFFFF));
+    return 0;
+}
+            </starter>
+            <expected>
+0x0000444C
+0x00000000
+0x00000000
+            </expected>
+            <solution>
+#include <stdio.h>
+#include <stdint.h>
+
+uint32_t mystery(uint32_t x) {
+    return ((x >> 16) ^ x) & 0xFFFF;    /* fold the high half into the low half */
+}
+
+int main(void) {
+    printf("0x%08X\n", mystery(0x12345678));
+    printf("0x%08X\n", mystery(0));
+    printf("0x%08X\n", mystery(0xFFFFFFFF));
+    return 0;
+}
+            </solution>
+          </challenge>
+        </div>
+      </section>
